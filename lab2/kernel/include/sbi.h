@@ -1,9 +1,8 @@
-#ifndef __SBI_H__
-#define __SBI_H__
+#ifndef _SBI_H
+#define _SBI_H
 
-#include <stdint.h> // 為了使用 long (在 64-bit 系統是 64-bit)
+#include <stdint.h>
 
-/* 定義回傳結構：SBI 會同時回傳 error 和 value */
 struct sbiret {
     long error;
     long value;

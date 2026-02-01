@@ -49,10 +49,6 @@ void initrd_list(const void* initrd_start, const void* initrd_end){
         }
         printf("\n");
 
-        // uint32_t offset = sizeof(struct cpio_newc_header) + namesize;
-        // offset = ALIGN4(offset);
-        // offset += filesize;
-        // offset = ALIGN4(offset);
         uint32_t offset = ALIGN4(ALIGN4(sizeof(struct cpio_newc_header) + namesize) + filesize);
 
         current += offset;
@@ -79,8 +75,6 @@ void initrd_cat(const void* initrd_start, const void* initrd_end, const char* ca
         }
 
         if(strcmp(cat_filename, filename) == 0){
-            // printf("Found file: %s\n", filename);
-            // printf("File size: %d bytes\n", filesize);
             char* file_content = current + ALIGN4(sizeof(struct cpio_newc_header) + namesize);
             for(uint32_t i = 0; i < filesize; i++){
                 printf("%c", file_content[i]);
