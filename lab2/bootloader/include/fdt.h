@@ -26,10 +26,10 @@ struct fdt_header {
 
 int fdt_path_offset(const void *fdt, const char *path);
 const void *fdt_getprop(const void *fdt, int nodeoffset, const char *name, int *lenp);
-
 void fdt_prop_value_printer(const void* prop_start, const int prop_len);
-
 void list_all_nodes(const void *fdt);
+int fdt_get_memory_info(void *dtb, uint64_t *base, uint64_t *size);
+int fdt_get_initrd_range(void *dtb, uint64_t *start, uint64_t *end);
 
 
 #endif
