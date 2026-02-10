@@ -73,12 +73,14 @@ board:
 	@echo " Building environment for Orange Pi RV2 ..."
 	@echo "========================================"
 	@$(MAKE) PLATFORM=board $(KERNEL_BIN) $(TARGET_FIT) $(BOOT_SCR)
-    
 	@echo ""
 	@echo "Files for SD Card:"
-	@echo "  1. $(TARGET_FIT)"
-	@echo "  2. $(KERNEL_BIN)"
-	@echo "  3. $(BOOT_SCR)"
+	@echo "  1. $(TARGET_FIT)  (Contains Bootloader & DTB)"
+	@echo "  2. $(BOOT_SCR)    (U-Boot Script)"
+	@echo ""
+	@echo "Prepare to send via UART:"
+	@echo "  1. $(KERNEL_BIN)"
+	@echo "  (Use 'python3 send_kernel.py' after booting)"
 
 dump-dtb: $(MY_RAMDISK) $(BOOTLOADER_ELF)
 	@echo "========================================"
@@ -98,7 +100,12 @@ build-all: $(KERNEL_BIN) $(BOOTLOADER_BIN)
 
 run-qemu: build-all
 	@echo "Running QEMU..."
-	$(QEMU) $(QEMU_FLAGS)
+	$(QEMU) -M virt -m 256M -display none \
+            -serial pty \
+            -monitor stdio \
+            -bios default \
+            -initrd $(MY_RAMDISK) \
+            -kernel $(BOOTLOADER_ELF)
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	@echo "  OBJCOPY $@"

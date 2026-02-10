@@ -1,6 +1,8 @@
 #include "initrd.h"
 #include "string.h"
 #include "stdio.h"
+#include "fdt.h"
+#include "utils.h"
 
 uint32_t _string_to_hex32_helper(const char* str){
     uint32_t hex = 0;
@@ -88,4 +90,30 @@ void initrd_cat(const void* initrd_start, const void* initrd_end, const char* ca
 
         current += offset;
     }
+}
+
+int get_initrd_info(const void* dtb_addr, uint64_t* initrd_start_addr, uint64_t* initrd_end_addr){
+    int offset = fdt_path_offset(dtb_addr, "/chosen");
+    if(offset == -1){
+        printf("Path /chosen not found in FDT.\n");
+        return -1;
+    }else{
+        int len = 0;
+        const void *prop = fdt_getprop(dtb_addr, offset, "linux,initrd-start", &len);
+        if(!prop){
+            printf("Property 'linux,initrd-start' not found.\n");
+            return -1;
+        }
+        uint32_t* initrd_start_prop = (uint32_t *)prop;
+        *initrd_start_addr = (uint64_t)((uint64_t)toLittleEndian((*initrd_start_prop))<<32 | (uint64_t)toLittleEndian(*(initrd_start_prop+1)));
+
+        prop = fdt_getprop(dtb_addr, offset, "linux,initrd-end", &len);
+        if(!prop){
+            printf("Property 'linux,initrd-end' not found.\n");
+            return -1;
+        }
+        uint32_t* initrd_end_prop = (uint32_t *)prop;
+        *initrd_end_addr = (uint64_t)((uint64_t)toLittleEndian((*initrd_end_prop))<<32 | (uint64_t)toLittleEndian(*(initrd_end_prop+1)));
+    } 
+    return 0;
 }
