@@ -27,6 +27,7 @@ struct cpio_newc_header {
 void initrd_list(const void* initrd_start, const void* initrd_end);
 void initrd_cat(const void* initrd_start, const void* initrd_end, const char* cat_filename);
 uint32_t _string_to_hex32_helper(const char* str);
+int get_initrd_info(const void* dtb_addr, uint64_t* initrd_start_addr, uint64_t* initrd_end_addr);
 
 
 #endif
