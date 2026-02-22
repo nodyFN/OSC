@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "string.h"
 #include "stdio.h"
+#include "mm.h"
 
 #include <stddef.h>
 
@@ -347,5 +348,95 @@ int fdt_get_initrd_range(void *dtb, uint64_t *start, uint64_t *end){
     uint32_t* initrd_end_prop = (uint32_t *)prop;
     *end = ((uint64_t)toLittleEndian((*initrd_end_prop))<<32 | (uint64_t)toLittleEndian(*(initrd_end_prop+1)));
 
+    return 0;
+}
+
+uint32_t fdt_total_size(const void *fdt){
+    struct fdt_header *header = (struct fdt_header *)fdt;
+    return toLittleEndian(header->totalsize);
+}
+
+int fdt_reserve_memory(void *dtb) {
+    int res_mem_offset = fdt_path_offset(dtb, "/reserved-memory");
+    if (res_mem_offset < 0) {
+        printf("[FDT] Node /reserved-memory not found. Skip dynamic reservation.\n");
+        return -1;
+    }
+
+    struct fdt_header *header = (struct fdt_header *)dtb;
+    uint32_t* string_base = (uint32_t *)((uint64_t)dtb + toLittleEndian(header->off_dt_strings));
+    
+    uint32_t* current = (uint32_t*)((uint64_t)dtb + res_mem_offset);
+
+    int depth = 0;
+    uint32_t address_cells = 2; 
+    uint32_t size_cells = 2;
+
+    while (1) {
+        uint32_t tag = toLittleEndian(*current);
+
+        if (tag == FDT_BEGIN_NODE) {
+            depth++;
+            current++;
+            
+            char* name_ptr = (char*)current;
+            int name_len = strlen(name_ptr) + 1;
+            int padded_len = (name_len + 3) & ~3;
+            current = (uint32_t *)((uint8_t *)current + padded_len);
+
+        } else if (tag == FDT_END_NODE) {
+            depth--;
+            current++;
+
+            if (depth == 0) {
+                break;
+            }
+
+        } else if (tag == FDT_PROP) {
+            uint32_t prop_len = toLittleEndian(*(current + 1));
+            uint32_t prop_nameoff = toLittleEndian(*(current + 2));
+            char* prop_name = (char *)string_base + prop_nameoff;
+
+            current += 3;
+            void *prop_value = current;
+
+            if (depth == 1 && strcmp(prop_name, "#address-cells") == 0) {
+                address_cells = toLittleEndian(*(uint32_t*)prop_value);
+            } else if (depth == 1 && strcmp(prop_name, "#size-cells") == 0) {
+                size_cells = toLittleEndian(*(uint32_t*)prop_value);
+            } else if (depth == 2 && strcmp(prop_name, "reg") == 0) {
+                uint32_t *val_ptr = (uint32_t*)prop_value;
+                uint64_t start = 0, size = 0;
+
+                if (address_cells == 2) {
+                    start = ((uint64_t)toLittleEndian(val_ptr[0]) << 32) | toLittleEndian(val_ptr[1]);
+                    val_ptr += 2;
+                } else {
+                    start = toLittleEndian(val_ptr[0]);
+                    val_ptr += 1;
+                }
+
+                if (size_cells == 2) {
+                    size = ((uint64_t)toLittleEndian(val_ptr[0]) << 32) | toLittleEndian(val_ptr[1]);
+                } else {
+                    size = toLittleEndian(val_ptr[0]);
+                }
+
+                printf("[Reserve] /reserved-memory chunk: 0x%lx - 0x%lx (Size: 0x%lx bytes)\n", start, start + size, size);
+                
+                memory_reserve(start, start + size);
+            }
+
+            int padded_len = (prop_len + 3) & ~3;
+            current = (uint32_t *)((uint8_t *)prop_value + padded_len);
+
+        } else if (tag == FDT_NOP) {
+            current++;
+        } else if (tag == FDT_END) {
+            break;
+        } else {
+            current++;
+        }
+    }
     return 0;
 }

@@ -17,6 +17,7 @@ SECTIONS
     .data : {
         . = ALIGN(8);
         *(.data .data.*)
+        *(.sdata .sdata.*)
     }
 
     .bss : {
@@ -24,10 +25,13 @@ SECTIONS
         __bss_start = .;
         *(.bss .bss.*)
         *(COMMON)
+        *(.sbss .sbss.*)
         __bss_end = .;
     }
 
-    . = ALIGN(16);
-    . += 0x8000;
+    . = ALIGN(4096);
+    _end = .;
+
+    . += 0x10000;
     _stack_top = .;
 }

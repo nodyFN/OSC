@@ -4,6 +4,7 @@
 #include "shell.h"
 #include "utils.h"
 #include "initrd.h"
+#include "mm.h"
 
 struct KernelInfo kernel_info;
 
@@ -24,9 +25,8 @@ void main(uint64_t hartid, void *dtb) {
         printf(">> [Kernel] Initrd End Addr: %lx\n", kernel_info.initrd_end_addr);
     }
     
-    
-    
-
+    mm_init(dtb);
+    mm_test();
 
     int32_t pid = 1;
 
