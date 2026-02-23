@@ -2,7 +2,15 @@
 #include <stdint.h>
 
 void uart_init() {
-
+    // QEMU virt 機器的 UART Base Address 是 0x10000000
+    volatile uint8_t *uart = (uint8_t *)0x10000000;
+    
+    uart[1] = 0x00; // IER: 關閉所有中斷
+    uart[3] = 0x80; // LCR: 開啟 DLAB (設定 Baud Rate 需要)
+    uart[0] = 0x03; // DLL: 設定 Baud Rate (38400 baud)
+    uart[1] = 0x00; // DLM: 
+    uart[3] = 0x03; // LCR: 8 bits, 無 parity, 1 stop bit
+    uart[2] = 0xC7; // FCR: 開啟 FIFO 緩衝區，並清空 TX/RX
 }
 
 void uart_putc(char c) {

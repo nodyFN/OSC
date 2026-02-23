@@ -2,7 +2,8 @@ ENTRY(_start)
 
 SECTIONS
 {
-    . = 0x80200000;
+    /* 💥 關鍵修改：讓 Bootloader 直接降落在 RAM 的最開頭！ */
+    . = 0x80000000;
 
     _bl_start = .;
 

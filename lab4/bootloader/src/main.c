@@ -11,10 +11,10 @@ extern char _bl_end[];
 int should_load_kernel;
 
 #ifdef QEMU
-    #define KERNEL_DEST_ADDR  0x80200000
+    #define KERNEL_DEST_ADDR  0x80200000ULL
 #else
     // #define KERNEL_DEST_ADDR  0x40200000
-    #define KERNEL_DEST_ADDR 0x00200000
+    #define KERNEL_DEST_ADDR 0x00200000ULL
 #endif
 
 void* global_dtb;
@@ -71,7 +71,19 @@ void main_post_reloc(uint64_t hartid, void *dtb) {
 
     printf(">> [High Mem] Jumping to Kernel at %lx...\n", KERNEL_DEST_ADDR);
 
+    // 💥 確保在跳躍前有這行！這會強制 CPU 重新去記憶體抓取最新的 Kernel 指令
+    __asm__ __volatile__("fence.i");
+    
     void (*kernel_entry)(uint64_t, void *) = (void (*)(uint64_t, void *))KERNEL_DEST_ADDR;
+
+    // // 💥 測試點 1：直接寫入 UART TX 暫存器印出 'J'
+    // // QEMU 的 UART Base Address 通常是 0x10000000
+    // __asm__ __volatile__(
+    //     "li t0, 0x10000000\n"
+    //     "li t1, 0x4A\n"        // 0x4A 是 'J' 的 ASCII 碼
+    //     "sb t1, 0(t0)\n"
+    //     ::: "t0", "t1", "memory"
+    // );
 
     kernel_entry(hartid, dtb);
 
