@@ -43,31 +43,45 @@ void shell_task() {
     }
 }
 
-// 💥 防禦編譯器重排的終極標籤
 __attribute__((noinline, noreturn)) 
 void jump_to_user_mode() {
+#ifdef QEMU
     write_csr(mscratch, (uint64_t)_stack_top);
-    // write_csr(mepc, (uint64_t)user_task);
     write_csr(mepc, (uint64_t)shell_task);
 
-    uint64_t mstatus = read_csr(mstatus);
-    mstatus &= ~(3UL << 11); // U-mode
-    mstatus |= (1UL << 7);   // MPIE = 1 (切換過去時自動打開中斷)
-    write_csr(mstatus, mstatus);
+    uint64_t status = read_csr(mstatus);
+    status &= ~(3UL << 11); // U-mode
+    status |= (1UL << 7);   // MPIE = 1
+    write_csr(mstatus, status);
 
-    // 💥 解鎖 PMP，讓 U-mode 能存取記憶體
+    // QEMU 跑在 M-mode，必須解鎖 PMP
     asm volatile("csrw pmpaddr0, %0" :: "r"(0x3FFFFFFFFFFFFFULL));
     asm volatile("csrw pmpcfg0, %0" :: "r"(0x1F));
+#else
+    // 實體板子跑在 S-mode
+    write_csr(sscratch, (uint64_t)_stack_top);
+    write_csr(sepc, (uint64_t)shell_task);
+
+    uint64_t status = read_csr(sstatus);
+    status &= ~(1UL << 8);  // SPP = 0 (代表降級到 U-mode)
+    status |= (1UL << 5);   // SPIE = 1
+    write_csr(sstatus, status);
+    
+    // S-mode 沒有權限設定 PMP，且 U-Boot 已經設定好了，所以不需要
+#endif
 
     void *user_stack = kmalloc(4096);
-    memset(user_stack, 0, 4096); // 💥 清空垃圾資料
+    memset(user_stack, 0, 4096); 
 
-    printf("\n[Kernel] Switching to U-mode using mret...\n");
+    printf("\n[Kernel] Switching to U-mode...\n");
 
-    // 💥 加上 Memory Barrier，禁止編譯器亂移程式碼
     asm volatile(
         "mv sp, %0\n"
-        "mret\n"
+#ifdef QEMU
+        "mret\n"   // M-mode 返回
+#else
+        "sret\n"   // S-mode 返回
+#endif
         :: "r"((uint64_t)user_stack + 4096)
         : "memory" 
     );
@@ -94,18 +108,17 @@ void main(uint64_t hartid, void *dtb) {
     plic_init(); // 💥 初始化 PLIC 控制器
 
     mm_init(dtb);
-    // // mm_test();
 
-    // int32_t pid = 1;
-
-    // while(1){
-    //     runAShell(++pid);
-    // }
+    #ifdef QEMU
+    plic_init(); 
     write_csr(mtvec, (uint64_t)trap_vector);
     timer_init();
-
-    // 💥 開啟 MEIE (Machine External Interrupt Enable) = bit 11
-    set_csr(mie, 1 << 11);
+    set_csr(mie, 1 << 11); // MEIE
+#else
+    // 實體板子沒有設定 S-mode PLIC，我們先不啟動外部中斷
+    write_csr(stvec, (uint64_t)trap_vector);
+    timer_init(); // 如果你想在板子上測試 Timer，我們稍後要改寫為 SBI 版本
+#endif
 
     jump_to_user_mode();
 

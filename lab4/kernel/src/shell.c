@@ -7,8 +7,15 @@
 #include "fdt.h"
 #include "utils.h"
 #include "stdio.h"
+#include "timer.h"
 
 extern struct KernelInfo kernel_info;
+
+void my_delayed_task(void *arg) {
+    char *msg = (char *)arg;
+    printf("\n\n[Alarm] Time is up! Message: %s\n", msg);
+    printf("OSClab> "); // 補印一個提示字元
+}
 
 void getCommand(char* buffer, int max_len) {
     int cursor_idx = 0;
@@ -17,6 +24,9 @@ void getCommand(char* buffer, int max_len) {
     for(int i=0; i<max_len; i++) buffer[i] = '\0';
 
     while(1) {
+        // 💥 在等待字元的時候，不斷檢查有沒有任務過期
+        check_timer_events();
+
         char c = uart_getc();
 
         if (c == KEY_ESC) {
@@ -117,6 +127,13 @@ void processCommand(shell_t* shell) {
         initrd_cat((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, filename);
     }else if(strcmp(shell->command, "help") == 0) {
     
+    }else if (strcmp(shell->command, "setTimeout") == 0) {
+        // 展示 Timer Multiplexing！
+        printf("Scheduling tasks in the future...\n");
+        add_timer(my_delayed_task, "Task A (2s)", 2);
+        add_timer(my_delayed_task, "Task B (5s)", 5);
+        add_timer(my_delayed_task, "Task C (3s)", 3);
+        printf("Tasks scheduled! They will trigger in 2s, 3s, and 5s.\n");
     }else{
         uart_puts("Command not found: ");
         uart_puts(shell->command);

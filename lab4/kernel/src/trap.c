@@ -8,32 +8,37 @@ extern void timer_handler();
 extern void uart_isr(); // 💥 引入 UART ISR
 
 void trap_handler() {
-    uint64_t mcause = read_csr(mcause);
-    uint64_t mepc = read_csr(mepc);
+#ifdef QEMU
+    uint64_t cause = read_csr(mcause);
+    uint64_t epc = read_csr(mepc);
+#else
+    uint64_t cause = read_csr(scause);
+    uint64_t epc = read_csr(sepc);
+#endif
 
-    if (mcause & 0x8000000000000000) {
-        uint64_t exception_code = mcause & 0x7FFFFFFFFFFFFFFF;
-        if (exception_code == 7) {
+    if (cause & 0x8000000000000000) {
+        uint64_t exception_code = cause & 0x7FFFFFFFFFFFFFFF;
+        // Exception Code 7 是 M-Timer，5 是 S-Timer
+        if (exception_code == 7 || exception_code == 5) {
             timer_handler();
         } 
+#ifdef QEMU
         else if (exception_code == 11) {
-            // 💥 捕捉到外部中斷 (Machine External Interrupt)
             uint32_t irq = plic_claim();
-            
-            if (irq == 10) { 
-                uart_isr(); // 處理 UART 收發
-            }
-            
-            if (irq) {
-                plic_complete(irq); // 告訴 PLIC 處理完畢
-            }
+            if (irq == 10) uart_isr();
+            if (irq) plic_complete(irq);
         }
+#endif
     } else {
-        if (mcause == 8) {
-            printf("\n[Trap] ecall from U-mode captured! mepc: 0x%lx\n", mepc);
-            write_csr(mepc, mepc + 4);
+        if (cause == 8) {
+            // printf("\n[Trap] ecall from U-mode captured! epc: 0x%lx\n", epc);
+#ifdef QEMU
+            write_csr(mepc, epc + 4);
+#else
+            write_csr(sepc, epc + 4);
+#endif
         } else {
-            printf("\n[Exception] Code: %ld, mepc: 0x%lx\n", mcause, mepc);
+            printf("\n[Exception] Code: %ld, epc: 0x%lx\n", cause, epc);
             while(1); 
         }
     }

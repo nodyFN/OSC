@@ -69,15 +69,21 @@ void uart_isr() {
 
 char uart_getc() {
 #ifdef QEMU
-    // 從 RX Buffer 讀取。如果空了就等待。
-    // 因為是等待記憶體變數，CPU 不會卡死 UART 硬體，能繼續處理 Timer
-    while (rx_head == rx_tail); 
+    while (rx_head == rx_tail) {
+        check_timer_events(); 
+    }
     char c = rx_buf[rx_tail];
     rx_tail = (rx_tail + 1) % BUF_SIZE;
     return c;
 #else
-    // 實體板子維持原本的輪詢 (Polling) 模式
-    while ((*UART_LSR & LSR_RX_READY) == 0);
+    // 實體板子 (Polling 模式)
+    while ((*UART_LSR & LSR_RX_READY) == 0) {
+        // 在等待時，不斷檢查是否有鬧鐘響起
+        check_timer_events(); 
+        
+        // 加入一個極短的延遲，避免 while 迴圈跑太快把 CPU 卡死
+        for (volatile int i = 0; i < 1000; i++); 
+    }
     return *UART_RBR;
 #endif
 }

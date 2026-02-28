@@ -4,12 +4,18 @@
 .global trap_vector
 
 trap_vector:
+    # 1. 交換 SP (取得 Kernel SP)
+#ifdef QEMU
     csrrw sp, mscratch, sp
+#else
+    csrrw sp, sscratch, sp
+#endif
+
+    # 2. 開堆疊
     addi sp, sp, -256
 
+    # 3. 儲存所有暫存器 (除了 x2(sp) 和 x0(zero))
     sd x1, 1*8(sp)
-    csrr t0, mscratch
-    sd t0, 2*8(sp)
     sd x3, 3*8(sp)
     sd x4, 4*8(sp)
     sd x5, 5*8(sp)
@@ -40,11 +46,29 @@ trap_vector:
     sd x30, 30*8(sp)
     sd x31, 31*8(sp)
 
+    # 4. 把存在 scratch 裡的 User SP 拿出來存好
+    # x5 (t0) 剛剛已經存進堆疊了，現在可以隨便用！
+#ifdef QEMU
+    csrr t0, mscratch
+#else
+    csrr t0, sscratch
+#endif
+    sd t0, 2*8(sp)
+
+    # 5. 呼叫 C 函數
     call trap_handler
 
-    ld x1, 1*8(sp)
+    # 6. 把原本的 User SP 讀回來放回 scratch
+    # 我們再次借用 t0
     ld t0, 2*8(sp)
+#ifdef QEMU
     csrw mscratch, t0
+#else
+    csrw sscratch, t0
+#endif
+
+    # 7. 恢復所有暫存器 (包含原本被我們借用的 t0/x5)
+    ld x1, 1*8(sp)
     ld x3, 3*8(sp)
     ld x4, 4*8(sp)
     ld x5, 5*8(sp)
@@ -75,6 +99,14 @@ trap_vector:
     ld x30, 30*8(sp)
     ld x31, 31*8(sp)
 
+    # 8. 回收堆疊
     addi sp, sp, 256
+
+    # 9. 再次交換！把存在 scratch 裡的 User SP 換回 sp，同時把 Kernel SP 存回 scratch
+#ifdef QEMU
     csrrw sp, mscratch, sp
     mret
+#else
+    csrrw sp, sscratch, sp
+    sret
+#endif

@@ -5,7 +5,11 @@
 
 _start:
     # 現在我們是真正的 M-mode 老大，這行不會當機了！
-    csrw mie, zero
+#ifdef QEMU
+    csrw mie, zero   # QEMU 跑在 M-mode
+#else
+    csrw sie, zero   # 板子 跑在 S-mode
+#endif
 
     mv s0, a0
     mv s1, a1
