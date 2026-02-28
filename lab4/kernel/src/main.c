@@ -6,6 +6,8 @@
 #include "initrd.h"
 #include "mm.h"
 #include "riscv.h"
+#include "string.h"
+#include "plic.h" // 💥 記得加上
 
 struct KernelInfo kernel_info;
 extern char _stack_top[];
@@ -73,12 +75,6 @@ void jump_to_user_mode() {
 }
 
 void main(uint64_t hartid, void *dtb) {
-    // 💥 延遲一陣子，避免 UART 衝突
-    // for (volatile int i = 0; i < 5000000; i++);
-
-    // printf("\n>> [Kernel] WOW! I am alive!\n");
-    
-    // for (volatile int i = 0; i < 5000000; i++);
     uart_init();
     printf("\nkernel: \n");
     printf(">> [Kernel] Booted successfully!\n");
@@ -95,6 +91,8 @@ void main(uint64_t hartid, void *dtb) {
         printf(">> [Kernel] Initrd End Addr: %lx\n", kernel_info.initrd_end_addr);
     }
     
+    plic_init(); // 💥 初始化 PLIC 控制器
+
     mm_init(dtb);
     // // mm_test();
 
@@ -105,6 +103,10 @@ void main(uint64_t hartid, void *dtb) {
     // }
     write_csr(mtvec, (uint64_t)trap_vector);
     timer_init();
+
+    // 💥 開啟 MEIE (Machine External Interrupt Enable) = bit 11
+    set_csr(mie, 1 << 11);
+
     jump_to_user_mode();
 
 }

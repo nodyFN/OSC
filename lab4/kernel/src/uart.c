@@ -1,36 +1,116 @@
 #include "uart.h"
 #include <stdint.h>
 
+#ifdef QEMU
+    // 補上 QEMU (16550A) 中斷所需的暫存器 (直接轉成指標)
+    #define UART_IER  (volatile uint8_t *)(UART_BASE + 0x01)
+    #define UART_IIR  (volatile uint8_t *)(UART_BASE + 0x02)
+    #define UART_FCR  (volatile uint8_t *)(UART_BASE + 0x02)
+    #define UART_LCR  (volatile uint8_t *)(UART_BASE + 0x03)
+
+    // 讀寫緩衝區 (Ring Buffer)
+    #define BUF_SIZE 256
+    static char rx_buf[BUF_SIZE];
+    static volatile int rx_head = 0;
+    static volatile int rx_tail = 0;
+
+    static char tx_buf[BUF_SIZE];
+    static volatile int tx_head = 0;
+    static volatile int tx_tail = 0;
+#endif
+
 void uart_init() {
-    // QEMU virt 機器的 UART Base Address 是 0x10000000
-    volatile uint8_t *uart = (uint8_t *)0x10000000;
+#ifdef QEMU
+    *UART_IER = 0x00; // 先關閉所有中斷
+    *UART_LCR = 0x80; // 開啟 DLAB，準備設定 Baud Rate
+    *UART_THR = 0x03; // DLL (除頻器低位元)
+    *UART_IER = 0x00; // DLM (除頻器高位元)
+    *UART_LCR = 0x03; // 8 bits, 無 parity, 1 stop bit
+    *UART_FCR = 0x07; // 開啟 FIFO 緩衝區
     
-    uart[1] = 0x00; // IER: 關閉所有中斷
-    uart[3] = 0x80; // LCR: 開啟 DLAB (設定 Baud Rate 需要)
-    uart[0] = 0x03; // DLL: 設定 Baud Rate (38400 baud)
-    uart[1] = 0x00; // DLM: 
-    uart[3] = 0x03; // LCR: 8 bits, 無 parity, 1 stop bit
-    uart[2] = 0xC7; // FCR: 開啟 FIFO 緩衝區，並清空 TX/RX
+    // 💥 關鍵：開啟 RX (接收) 中斷 💥
+    *UART_IER = 0x01; 
+#else
+    // 實體板子 (Orange Pi) 如果還沒要實作中斷，先維持現狀或留空
+#endif
+}
+
+void uart_isr() {
+#ifdef QEMU
+    while (1) {
+        uint8_t iir = *UART_IIR;
+        if (iir & 0x01) break; // 0x01 代表沒有待處理的中斷
+        
+        uint8_t id = (iir >> 1) & 0x0F;
+        
+        if (id == 2 || id == 6) { 
+            // 收到資料 (RX)
+            while (*UART_LSR & LSR_RX_READY) {
+                char c = *UART_RBR;
+                int next_head = (rx_head + 1) % BUF_SIZE;
+                if (next_head != rx_tail) {
+                    rx_buf[rx_head] = c;
+                    rx_head = next_head;
+                }
+            }
+        } else if (id == 1) { 
+            // 硬體準備好發送下一筆資料了 (TX)
+            if (tx_head != tx_tail) {
+                *UART_THR = tx_buf[tx_tail];
+                tx_tail = (tx_tail + 1) % BUF_SIZE;
+            } else {
+                // Buffer 沒東西了，暫時關閉 TX 中斷
+                *UART_IER &= ~0x02;
+            }
+        }
+    }
+#endif
+}
+
+char uart_getc() {
+#ifdef QEMU
+    // 從 RX Buffer 讀取。如果空了就等待。
+    // 因為是等待記憶體變數，CPU 不會卡死 UART 硬體，能繼續處理 Timer
+    while (rx_head == rx_tail); 
+    char c = rx_buf[rx_tail];
+    rx_tail = (rx_tail + 1) % BUF_SIZE;
+    return c;
+#else
+    // 實體板子維持原本的輪詢 (Polling) 模式
+    while ((*UART_LSR & LSR_RX_READY) == 0);
+    return *UART_RBR;
+#endif
 }
 
 void uart_putc(char c) {
+#ifdef QEMU
+    int next_head = (tx_head + 1) % BUF_SIZE;
+    
+    // 💥 防死鎖機制：如果 Buffer 滿了
+    // 代表目前可能處於「中斷關閉」的狀態 (例如 Kernel 剛開機)
+    // 我們主動檢查硬體是否閒置，如果是，就手動把最舊的字元推出去，強行騰出空間！
+    while (next_head == tx_tail) {
+        if (*UART_LSR & LSR_TX_IDLE) {
+            *UART_THR = tx_buf[tx_tail];
+            tx_tail = (tx_tail + 1) % BUF_SIZE;
+        }
+    }
+    
+    tx_buf[tx_head] = c;
+    tx_head = next_head;
+    
+    // 寫入 Buffer 後，主動打開 TX 中斷，讓硬體自動把 Buffer 內的字元吃走
+    *UART_IER |= 0x02;
+#else
     while ((*UART_LSR & LSR_TX_IDLE) == 0);
     *UART_THR = c;
+#endif
 }
 
 void uart_puts(const char *s) {
     while (*s) {
-        if (*s == '\n') {
-            uart_putc('\r');
-        }
         uart_putc(*s++);
     }
-}
-
-char uart_getc() {
-    while ((*UART_LSR & LSR_RX_READY) == 0);
-
-    return (char)(*UART_RBR & 0xFF);
 }
 
 void uart_hex(unsigned long value) {
