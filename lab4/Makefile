@@ -49,7 +49,7 @@ else
     LOADER_ADDR  = -DLOADER_ADDR=0x42000000
 endif
 
-QEMU_FLAGS = -M virt -m 256M -nographic -bios none \
+QEMU_FLAGS = -M virt -m 256M -nographic -bios default \
              -initrd $(MY_RAMDISK) \
              -kernel $(BOOTLOADER_ELF) \
              -device loader,file=$(KERNEL_BIN),addr=0x82000000
@@ -103,7 +103,7 @@ run-qemu: build-all
 	$(QEMU) -M virt -m 256M -display none \
             -serial pty \
             -monitor stdio \
-            -bios none \
+            -bios default \
             -initrd $(MY_RAMDISK) \
             -kernel $(BOOTLOADER_ELF)
 

@@ -46,30 +46,14 @@ void shell_task() {
 
 __attribute__((noinline, noreturn)) 
 void jump_to_user_mode() {
-#ifdef QEMU
-    write_csr(mscratch, (uint64_t)_stack_top);
-    write_csr(mepc, (uint64_t)shell_task);
-
-    uint64_t status = read_csr(mstatus);
-    status &= ~(3UL << 11); // U-mode
-    status |= (1UL << 7);   // MPIE = 1
-    write_csr(mstatus, status);
-
-    // QEMU 跑在 M-mode，必須解鎖 PMP
-    asm volatile("csrw pmpaddr0, %0" :: "r"(0x3FFFFFFFFFFFFFULL));
-    asm volatile("csrw pmpcfg0, %0" :: "r"(0x1F));
-#else
-    // 實體板子跑在 S-mode
+    // 💥 雙平台統一：使用 S-mode 暫存器，不設定 PMP
     write_csr(sscratch, (uint64_t)_stack_top);
     write_csr(sepc, (uint64_t)shell_task);
 
     uint64_t status = read_csr(sstatus);
-    status &= ~(1UL << 8);  // SPP = 0 (代表降級到 U-mode)
+    status &= ~(1UL << 8);  // SPP = 0 (降級到 U-mode)
     status |= (1UL << 5);   // SPIE = 1
     write_csr(sstatus, status);
-    
-    // S-mode 沒有權限設定 PMP，且 U-Boot 已經設定好了，所以不需要
-#endif
 
     void *user_stack = kmalloc(4096);
     memset(user_stack, 0, 4096); 
@@ -78,27 +62,40 @@ void jump_to_user_mode() {
 
     asm volatile(
         "mv sp, %0\n"
-#ifdef QEMU
-        "mret\n"   // M-mode 返回
-#else
-        "sret\n"   // S-mode 返回
-#endif
+        "sret\n"   // 💥 雙平台統一：sret
         :: "r"((uint64_t)user_stack + 4096)
         : "memory" 
     );
     while(1);
 }
 
+void check_delegation() {
+    // 試圖寫入 SEIE (bit 9)，這是外部中斷的開關
+    set_csr(sie, 1 << 9); 
+    
+    // 再讀出來看看
+    uint64_t current_sie = read_csr(sie);
+    
+    if (current_sie & (1 << 9)) {
+        printf(">> [Check] SEIP is delegated! (Bit 9 is writable)\n");
+    } else {
+        printf(">> [Check] SEIP is NOT delegated. (Bit 9 is stuck at 0)\n");
+    }
+}
+
 void main(uint64_t hartid, void *dtb) {
     uart_init();
+    // for (volatile int i = 0; i < 5000000; i++);
     printf("\nkernel: \n");
     printf(">> [Kernel] Booted successfully!\n");
     printf(">> [Kernel] Hart ID: %lx\n", hartid);
     printf(">> [Kernel] DTB Addr: %lx\n", (uint64_t)dtb);
 
-    // struct sbiret version_ret = sbi_ecall(0x10, 0, 0, 0, 0, 0, 0, 0);
-    // uart_puts("SBI Version: ");
-    // uart_hex(version_ret.value);
+    struct sbiret version_ret = sbi_ecall(0x10, 0, 0, 0, 0, 0, 0, 0);
+    uart_puts("SBI Version: ");
+    uart_hex(version_ret.value);
+
+    check_delegation();
 
     kernel_info.hartid = hartid;
     kernel_info.dtb_addr = dtb;
@@ -114,23 +111,18 @@ void main(uint64_t hartid, void *dtb) {
 
     mm_init(dtb);
 
-#ifdef QEMU
-    plic_init(); 
-    write_csr(mtvec, (uint64_t)trap_vector);
-    timer_init();
-    set_csr(mie, 1 << 11); // MEIE
-#else
-    // 💥 依然保持先設定 stvec 以策安全
+    // 💥 雙平台統一：設定 stvec、初始化 PLIC 與 Timer
     write_csr(stvec, (uint64_t)trap_vector);
-
-    // 💥 重啟 PLIC 初始化！
     plic_init(); 
     timer_init();
+
+    printf("Testing Software-triggered Interrupt...\n");
+    set_csr(sip, 1 << 9); // 手動立起 SEIP bit
     
-    // 💥 依照最新 Spec，同時開啟 SIE 與 SEIE (Supervisor External Interrupt)
-    set_csr(sstatus, 1 << 1); 
-    set_csr(sie, 1 << 9);     
-#endif
+    // 💥 雙平台統一：開啟 S-mode 全域中斷 (SIE) 與外部中斷 (SEIE)
+    // 註：Timer 的 STIE 應該已經在你的 timer_init() 裡設定了
+    set_csr(sstatus, 1 << 1); // sstatus.SIE = 1
+    set_csr(sie, 1 << 9);     // sie.SEIE = 1
 
     jump_to_user_mode();
 

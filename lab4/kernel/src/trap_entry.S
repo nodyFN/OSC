@@ -1,7 +1,4 @@
 /* kernel/src/trap_entry.S */
-.section .rodata
-debug_msg: .string "\n[DEBUG] Assembly call trap_handler!\n"
-
 .section .text
 .align 4
 .global trap_vector
@@ -13,17 +10,11 @@ trap_vector:
     sd t0, 0(sp)
     sd t1, 8(sp)
 
-#ifdef QEMU
-    csrr t0, mstatus
-    li t1, 0x1800        # MPP 的遮罩 (bits 11:12)
-    and t0, t0, t1
-    bnez t0, from_kernel # 如果 MPP != 0，代表我們是從 M-mode 來的 (巢狀中斷)
-#else
+    # 雙平台統一：直接讀取 sstatus 判斷 SPP
     csrr t0, sstatus
     li t1, 0x100         # SPP 的遮罩 (bit 8)
     and t0, t0, t1
     bnez t0, from_kernel # 如果 SPP != 0，代表我們是從 S-mode 來的 (巢狀中斷)
-#endif
 
 from_user:
     # 來自 U-mode：還原 t0, t1，並切換到 Kernel Stack
@@ -31,24 +22,17 @@ from_user:
     ld t1, 8(sp)
     addi sp, sp, 16
     
-#ifdef QEMU
-    csrrw sp, mscratch, sp
-#else
+    # 雙平台統一：使用 sscratch 交換 SP
     csrrw sp, sscratch, sp
-#endif
 
     addi sp, sp, -256
     # 儲存原本的 User SP (目前存放在 scratch 裡)
-#ifdef QEMU
-    csrr t0, mscratch
-#else
     csrr t0, sscratch
-#endif
     sd t0, 2*8(sp)
     j save_common
 
 from_kernel:
-    # 來自 Kernel：還原 t0, t1，**絕對不可以交換 SP**
+    # 來自 Kernel：還原 t0, t1，絕對不可以交換 SP
     ld t0, 0(sp)
     ld t1, 8(sp)
     addi sp, sp, 16
@@ -62,6 +46,7 @@ from_kernel:
 save_common:
     # 2. 儲存剩下的所有通用暫存器
     sd x1, 1*8(sp)
+    # x2 是 SP，我們已經處理過了
     sd x3, 3*8(sp)
     sd x4, 4*8(sp)
     sd x5, 5*8(sp)
@@ -91,12 +76,6 @@ save_common:
     sd x29, 29*8(sp)
     sd x30, 30*8(sp)
     sd x31, 31*8(sp)
-
-    # # 💥 加入 Assembly Debug 訊息 💥
-    # # 由於所有暫存器都已經安全地存在 stack 上了，我們現在可以隨意使用暫存器
-    # la a0, debug_msg     # 將字串的位址載入 a0 (第一個參數)
-    # call printf          # 呼叫 C 的 printf
-
 
     # 3. 呼叫 C 語言的 Handler
     call trap_handler
@@ -134,41 +113,21 @@ save_common:
     ld x31, 31*8(sp)
 
     # 5. 檢查我們要返回哪裡
-#ifdef QEMU
-    csrr t0, mstatus
-    li t1, 0x1800
-    and t0, t0, t1
-    bnez t0, ret_to_kernel
-#else
     csrr t0, sstatus
     li t1, 0x100
     and t0, t0, t1
     bnez t0, ret_to_kernel
-#endif
 
 ret_to_user:
     # 要回到 U-mode：把剛剛存在 2*8(sp) 的 User SP 放回 scratch，並交換 SP
     ld t0, 2*8(sp)
-#ifdef QEMU
-    csrw mscratch, t0
-#else
     csrw sscratch, t0
-#endif
     addi sp, sp, 256
 
-#ifdef QEMU
-    csrrw sp, mscratch, sp
-    mret
-#else
     csrrw sp, sscratch, sp
-    sret
-#endif
+    sret # 雙平台統一：使用 sret 返回 U-mode
 
 ret_to_kernel:
     # 要回到 Kernel (巢狀中斷結束)：不需要交換，直接退回堆疊即可
     addi sp, sp, 256
-#ifdef QEMU
-    mret
-#else
-    sret
-#endif
+    sret # 雙平台統一：使用 sret 返回 S-mode

@@ -3,6 +3,7 @@
 #include "mm.h"
 #include "stdio.h"
 #include "riscv.h"
+#include "sbi.h"
 
 // ==========================================
 // 硬體相關定義與抽象函數
@@ -17,15 +18,12 @@
     #define TIMEBASE_FREQ 24000000 // Orange Pi RV2 (JH7110) 24MHz
 #endif
 
-// 取得目前的系統時間
+// 1. 取得目前的系統時間 (統一使用 rdtime 指令)
+// rdtime 是 S-mode 合法指令，OpenSBI 會幫我們處理
 static uint64_t get_current_time() {
-#ifdef QEMU
-    return *MTIME;
-#else
     uint64_t time;
     asm volatile("rdtime %0" : "=r"(time));
     return time;
-#endif
 }
 
 
@@ -45,13 +43,11 @@ static inline void sbi_set_timer(uint64_t stime_value) {
 }
 #endif
 
-// 設定下一次的鬧鐘觸發時間
+// 2. 設定下一次的鬧鐘 (統一使用 SBI Call)
 static void set_next_timer(uint64_t expire_time) {
-#ifdef QEMU
-    *MTIMECMP = expire_time;
-#else
-    sbi_set_timer(expire_time); // 💥 使用新的安全 SBI 呼叫
-#endif
+    // 使用 SBI Extension ID: 0x00 (Legacy Set Timer)
+    // 或者使用新的 0x54494D45 (TIME Extension)
+    sbi_ecall(0x00, 0, expire_time, 0, 0, 0, 0, 0);
 }
 
 // // 關閉/開啟本機中斷 (保護 Linked List)
@@ -89,12 +85,9 @@ void add_timer(timer_callback_t callback, void *arg, uint64_t duration_sec) {
     new_node->arg = arg;
     new_node->next = NULL;
 
-    // uint64_t status = lock_interrupts(); // 💥 進入臨界區
-
     if (timer_head == NULL || timer_head->expire_time > new_node->expire_time) {
         new_node->next = timer_head;
         timer_head = new_node;
-        // 最快過期的任務改變了，立刻更新硬體鬧鐘
         set_next_timer(timer_head->expire_time);
     } else {
         timer_event_t *curr = timer_head;
@@ -104,30 +97,18 @@ void add_timer(timer_callback_t callback, void *arg, uint64_t duration_sec) {
         new_node->next = curr->next;
         curr->next = new_node;
     }
-
-    // unlock_interrupts(status); // 💥 離開臨界區
 }
 
 void timer_handler() {
     uint64_t current_time = get_current_time();
-
-    // 處理所有已過期的任務
     while (timer_head != NULL && timer_head->expire_time <= current_time) {
         timer_event_t *event = timer_head;
         timer_head = timer_head->next;
-
-        if (event->callback) {
-            event->callback(event->arg);
-        }
-        
-        // 此處可呼叫 kfree(event); 釋放記憶體
+        if (event->callback) event->callback(event->arg);
     }
-
-    // 設定下一個鬧鐘
     if (timer_head != NULL) {
         set_next_timer(timer_head->expire_time);
     } else {
-        // 如果沒有任務了，把鬧鐘設到無限遠
         set_next_timer(0xFFFFFFFFFFFFFFFFULL);
     }
 }
@@ -138,29 +119,18 @@ void timer_handler() {
 // ==========================================
 
 static uint64_t uptime_sec = 0;
-
 void print_uptime_callback(void *arg) {
     uptime_sec++;
     printf("[Timer] System uptime: %ld seconds\n", uptime_sec);
-    
-    // 再次預約 1 秒後的自己！
     add_timer(print_uptime_callback, NULL, 1);
 }
 
 void timer_init() {
-    // 預約第一個任務
     add_timer(print_uptime_callback, NULL, 1);
     
-#ifdef QEMU
-    set_csr(mie, 1 << 7); // 開啟 MTIE
-#else
-    // 💥 1. 開啟 STIE (Supervisor Timer Interrupt Enable)
-    set_csr(sie, 1 << 5); 
-
-    // 💥 2. 強制開啟 S-mode 的全域中斷 (SIE 位元, mstatus/sstatus 的 bit 1)
-    // 這樣就算在 S-mode 底下，也能收到中斷
-    set_csr(sstatus, 1 << 1); 
-#endif
+    // 💥 雙平台統一：只開啟 S-mode 的中斷
+    set_csr(sie, 1 << 5);     // 開啟 STIE (Supervisor Timer Interrupt Enable)
+    set_csr(sstatus, 1 << 1); // 開啟全域 SIE
 }
 
 

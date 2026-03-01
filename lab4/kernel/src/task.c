@@ -12,22 +12,19 @@ void task_queue_init() {
 }
 
 static uint64_t lock_queue() {
-#ifdef QEMU
-    uint64_t status = read_csr(mstatus);
-    clear_csr(mstatus, 1 << 3); // 關閉 MIE
-#else
+    // 💥 雙平台統一：QEMU 現在也是 S-mode，統一存取 sstatus
     uint64_t status = read_csr(sstatus);
-    clear_csr(sstatus, 1 << 1); // 關閉 SIE
-#endif
+    
+    // 💥 雙平台統一：S-mode 的全域中斷開關是 SIE (bit 1)
+    // 原本 M-mode 的 MIE (bit 3) 在這裡會觸發 Illegal Instruction
+    clear_csr(sstatus, 1 << 1); 
+    
     return status;
 }
 
 static void unlock_queue(uint64_t status) {
-#ifdef QEMU
-    write_csr(mstatus, status);
-#else
+    // 💥 雙平台統一：寫回 sstatus
     write_csr(sstatus, status);
-#endif
 }
 
 void add_task(task_callback_t callback, void *arg, int priority) {
