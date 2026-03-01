@@ -9,6 +9,10 @@
     #define UART_THR  (volatile uint8_t *)(UART_BASE + 0x00) // 0x00
     #define UART_RBR  (volatile uint8_t *)(UART_BASE + 0x00) // 0x00
     #define UART_LSR  (volatile uint8_t *)(UART_BASE + 0x05) // 0x05 (標準 Offset)
+    #define UART_IER  ((volatile uint8_t *)(UART_BASE + 0x01)) // 中斷致能
+    #define UART_IIR  ((volatile uint8_t *)(UART_BASE + 0x02)) // 中斷識別
+    #define UART_MCR  ((volatile uint8_t *)(UART_BASE + 0x04)) // 💥 新增 MCR (Offset 0x04)
+    #define UART_FCR  ((volatile uint8_t *)(UART_BASE + 0x02)) // FIFO 控制
 
 #else
     #define UART_BASE 0xd4017000
@@ -20,6 +24,10 @@
     #define UART_THR  (volatile uint32_t *)(UART_BASE + 0x00) // 0x00
     #define UART_RBR  (volatile uint32_t *)(UART_BASE + 0x00) // 0x00
     #define UART_LSR  (volatile uint32_t *)(UART_BASE + 0x14) // 0x05 * 4 = 0x14
+    #define UART_IER  ((volatile uint32_t *)(UART_BASE + 0x04)) // 0x01 * 4 = 0x04
+    #define UART_IIR  ((volatile uint32_t *)(UART_BASE + 0x08)) // 0x02 * 4 = 0x08
+    #define UART_MCR  ((volatile uint32_t *)(UART_BASE + 0x10)) // 💥 新增 MCR (0x04 * 4 = 0x10)
+    #define UART_FCR  ((volatile uint32_t *)(UART_BASE + 0x08)) // 0x02 * 4 = 0x08
 
 #endif
 

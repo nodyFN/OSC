@@ -54,25 +54,25 @@ static void set_next_timer(uint64_t expire_time) {
 #endif
 }
 
-// 關閉/開啟本機中斷 (保護 Linked List)
-static uint64_t lock_interrupts() {
-#ifdef QEMU
-    uint64_t status = read_csr(mstatus);
-    clear_csr(mstatus, 1 << 3); // 關閉 MIE
-#else
-    uint64_t status = read_csr(sstatus);
-    clear_csr(sstatus, 1 << 1); // 關閉 SIE
-#endif
-    return status;
-}
+// // 關閉/開啟本機中斷 (保護 Linked List)
+// static uint64_t lock_interrupts() {
+// #ifdef QEMU
+//     uint64_t status = read_csr(mstatus);
+//     clear_csr(mstatus, 1 << 3); // 關閉 MIE
+// #else
+//     uint64_t status = read_csr(sstatus);
+//     clear_csr(sstatus, 1 << 1); // 關閉 SIE
+// #endif
+//     return status;
+// }
 
-static void unlock_interrupts(uint64_t status) {
-#ifdef QEMU
-    write_csr(mstatus, status);
-#else
-    write_csr(sstatus, status);
-#endif
-}
+// static void unlock_interrupts(uint64_t status) {
+// #ifdef QEMU
+//     write_csr(mstatus, status);
+// #else
+//     write_csr(sstatus, status);
+// #endif
+// }
 
 
 

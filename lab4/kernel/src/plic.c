@@ -1,33 +1,66 @@
-/* kernel/src/plic.c */
+#include <stdint.h>
 #include "plic.h"
 
-// QEMU Virt 機器的 PLIC 記憶體映射位址
-#define PLIC_BASE 0x0c000000L
-#define PLIC_PRIORITY(id)     (PLIC_BASE + (id) * 4)
-#define PLIC_MENABLE(hart)    (PLIC_BASE + 0x2000 + (hart) * 0x80)
-#define PLIC_MTHRESHOLD(hart) (PLIC_BASE + 0x200000 + (hart) * 0x1000)
-#define PLIC_MCLAIM(hart)     (PLIC_BASE + 0x200004 + (hart) * 0x1000)
+struct KernelInfo {
+    uint64_t hartid;
+    void *dtb_addr;
+    uint64_t initrd_start_addr;
+    uint64_t initrd_end_addr;
+};
+extern struct KernelInfo kernel_info;
 
-void plic_init() {
-    int uart_irq = 10; // QEMU 中 UART0 的中斷號碼是 10
-    int hart = 0;      // Boot hart 是 0
+#ifdef QEMU
+    #define PLIC_BASE 0x0c000000L
+    #define UART0_IRQ 10
 
-    // 1. 設定 UART 中斷優先級為 1 (必須大於 0 才會觸發)
-    *(volatile uint32_t*)PLIC_PRIORITY(uart_irq) = 1;
+    void plic_init() {
+        *(volatile uint32_t *)(PLIC_BASE + UART0_IRQ * 4) = 1; 
+        *(volatile uint32_t *)(PLIC_BASE + 0x2000) = (1 << UART0_IRQ); 
+        *(volatile uint32_t *)(PLIC_BASE + 0x200000) = 0; 
+    }
 
-    // 2. 允許 Hart 0 的 M-mode 接收此中斷
-    *(volatile uint32_t*)PLIC_MENABLE(hart) = (1 << uart_irq);
+    uint32_t plic_claim() {
+        return *(volatile uint32_t *)(PLIC_BASE + 0x200004);
+    }
 
-    // 3. 設定門檻為 0 (接受所有大於 0 的優先級)
-    *(volatile uint32_t*)PLIC_MTHRESHOLD(hart) = 0;
-}
+    void plic_complete(uint32_t irq) {
+        *(volatile uint32_t *)(PLIC_BASE + 0x200004) = irq;
+    }
+#else
+    // Orange Pi RV2 (OpiRV2) 參數
+    #define PLIC_BASE 0xe0000000L
+    #define UART0_IRQ 0x2a // 42
 
-uint32_t plic_claim() {
-    // 讀取 Claim 暫存器，得知是哪個設備觸發中斷
-    return *(volatile uint32_t*)PLIC_MCLAIM(0);
-}
+    void plic_init() {
+        *(volatile uint32_t *)(PLIC_BASE + UART0_IRQ * 4) = 1;
 
-void plic_complete(uint32_t irq) {
-    // 寫回 Claim 暫存器，告訴 PLIC 中斷處理完畢
-    *(volatile uint32_t*)PLIC_MCLAIM(0) = irq;
-}
+        // 把 Context 0 到 3 的 UART0 中斷全部打開
+        for (int ctx = 0; ctx < 4; ctx++) {
+            uint64_t en_addr = PLIC_BASE + 0x2000 + ctx * 0x80 + (UART0_IRQ / 32) * 4;
+            *(volatile uint32_t *)en_addr |= (1 << (UART0_IRQ % 32));
+
+            uint64_t th_addr = PLIC_BASE + 0x200000 + ctx * 0x1000;
+            *(volatile uint32_t *)th_addr = 0;
+        }
+    }
+
+    static uint64_t current_claim_addr = 0;
+
+    uint32_t plic_claim() {
+        for (int ctx = 0; ctx < 4; ctx++) {
+            uint64_t claim_addr = PLIC_BASE + 0x200004 + ctx * 0x1000;
+            uint32_t irq = *(volatile uint32_t *)claim_addr;
+            if (irq != 0) {
+                current_claim_addr = claim_addr;
+                return irq;
+            }
+        }
+        return 0;
+    }
+
+    void plic_complete(uint32_t irq) {
+        if (current_claim_addr != 0) {
+            *(volatile uint32_t *)current_claim_addr = irq;
+        }
+    }
+#endif

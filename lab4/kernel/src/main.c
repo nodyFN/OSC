@@ -8,6 +8,7 @@
 #include "riscv.h"
 #include "string.h"
 #include "plic.h" // 💥 記得加上
+#include "sbi.h" // 💥 記得加上
 
 struct KernelInfo kernel_info;
 extern char _stack_top[];
@@ -95,6 +96,10 @@ void main(uint64_t hartid, void *dtb) {
     printf(">> [Kernel] Hart ID: %lx\n", hartid);
     printf(">> [Kernel] DTB Addr: %lx\n", (uint64_t)dtb);
 
+    // struct sbiret version_ret = sbi_ecall(0x10, 0, 0, 0, 0, 0, 0, 0);
+    // uart_puts("SBI Version: ");
+    // uart_hex(version_ret.value);
+
     kernel_info.hartid = hartid;
     kernel_info.dtb_addr = dtb;
     if(get_initrd_info(dtb, &kernel_info.initrd_start_addr, &kernel_info.initrd_end_addr) == -1){
@@ -105,19 +110,26 @@ void main(uint64_t hartid, void *dtb) {
         printf(">> [Kernel] Initrd End Addr: %lx\n", kernel_info.initrd_end_addr);
     }
     
-    plic_init(); // 💥 初始化 PLIC 控制器
+    // plic_init(); // 💥 初始化 PLIC 控制器
 
     mm_init(dtb);
 
-    #ifdef QEMU
+#ifdef QEMU
     plic_init(); 
     write_csr(mtvec, (uint64_t)trap_vector);
     timer_init();
     set_csr(mie, 1 << 11); // MEIE
 #else
-    // 實體板子沒有設定 S-mode PLIC，我們先不啟動外部中斷
+    // 💥 依然保持先設定 stvec 以策安全
     write_csr(stvec, (uint64_t)trap_vector);
-    timer_init(); // 如果你想在板子上測試 Timer，我們稍後要改寫為 SBI 版本
+
+    // 💥 重啟 PLIC 初始化！
+    plic_init(); 
+    timer_init();
+    
+    // 💥 依照最新 Spec，同時開啟 SIE 與 SEIE (Supervisor External Interrupt)
+    set_csr(sstatus, 1 << 1); 
+    set_csr(sie, 1 << 9);     
 #endif
 
     jump_to_user_mode();

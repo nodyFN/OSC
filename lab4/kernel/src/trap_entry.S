@@ -1,20 +1,66 @@
 /* kernel/src/trap_entry.S */
+.section .rodata
+debug_msg: .string "\n[DEBUG] Assembly call trap_handler!\n"
+
 .section .text
 .align 4
 .global trap_vector
 
 trap_vector:
-    # 1. 交換 SP (取得 Kernel SP)
+    # 1. 檢查前一個特權模式 (Privilege Mode)
+    # 我們先在當前的 SP 上借用 16 bytes 來暫存 t0, t1 (不管 SP 是 User 還是 Kernel，這都是安全的)
+    addi sp, sp, -16
+    sd t0, 0(sp)
+    sd t1, 8(sp)
+
+#ifdef QEMU
+    csrr t0, mstatus
+    li t1, 0x1800        # MPP 的遮罩 (bits 11:12)
+    and t0, t0, t1
+    bnez t0, from_kernel # 如果 MPP != 0，代表我們是從 M-mode 來的 (巢狀中斷)
+#else
+    csrr t0, sstatus
+    li t1, 0x100         # SPP 的遮罩 (bit 8)
+    and t0, t0, t1
+    bnez t0, from_kernel # 如果 SPP != 0，代表我們是從 S-mode 來的 (巢狀中斷)
+#endif
+
+from_user:
+    # 來自 U-mode：還原 t0, t1，並切換到 Kernel Stack
+    ld t0, 0(sp)
+    ld t1, 8(sp)
+    addi sp, sp, 16
+    
 #ifdef QEMU
     csrrw sp, mscratch, sp
 #else
     csrrw sp, sscratch, sp
 #endif
 
-    # 2. 開堆疊
     addi sp, sp, -256
+    # 儲存原本的 User SP (目前存放在 scratch 裡)
+#ifdef QEMU
+    csrr t0, mscratch
+#else
+    csrr t0, sscratch
+#endif
+    sd t0, 2*8(sp)
+    j save_common
 
-    # 3. 儲存所有暫存器 (除了 x2(sp) 和 x0(zero))
+from_kernel:
+    # 來自 Kernel：還原 t0, t1，**絕對不可以交換 SP**
+    ld t0, 0(sp)
+    ld t1, 8(sp)
+    addi sp, sp, 16
+
+    addi sp, sp, -256
+    # 儲存原本的 Kernel SP (也就是退回 256 bytes 前的 sp)
+    addi t0, sp, 256
+    sd t0, 2*8(sp)
+    j save_common
+
+save_common:
+    # 2. 儲存剩下的所有通用暫存器
     sd x1, 1*8(sp)
     sd x3, 3*8(sp)
     sd x4, 4*8(sp)
@@ -46,28 +92,16 @@ trap_vector:
     sd x30, 30*8(sp)
     sd x31, 31*8(sp)
 
-    # 4. 把存在 scratch 裡的 User SP 拿出來存好
-    # x5 (t0) 剛剛已經存進堆疊了，現在可以隨便用！
-#ifdef QEMU
-    csrr t0, mscratch
-#else
-    csrr t0, sscratch
-#endif
-    sd t0, 2*8(sp)
+    # # 💥 加入 Assembly Debug 訊息 💥
+    # # 由於所有暫存器都已經安全地存在 stack 上了，我們現在可以隨意使用暫存器
+    # la a0, debug_msg     # 將字串的位址載入 a0 (第一個參數)
+    # call printf          # 呼叫 C 的 printf
 
-    # 5. 呼叫 C 函數
+
+    # 3. 呼叫 C 語言的 Handler
     call trap_handler
 
-    # 6. 把原本的 User SP 讀回來放回 scratch
-    # 我們再次借用 t0
-    ld t0, 2*8(sp)
-#ifdef QEMU
-    csrw mscratch, t0
-#else
-    csrw sscratch, t0
-#endif
-
-    # 7. 恢復所有暫存器 (包含原本被我們借用的 t0/x5)
+    # 4. 準備返回，先恢復通用暫存器
     ld x1, 1*8(sp)
     ld x3, 3*8(sp)
     ld x4, 4*8(sp)
@@ -99,14 +133,42 @@ trap_vector:
     ld x30, 30*8(sp)
     ld x31, 31*8(sp)
 
-    # 8. 回收堆疊
+    # 5. 檢查我們要返回哪裡
+#ifdef QEMU
+    csrr t0, mstatus
+    li t1, 0x1800
+    and t0, t0, t1
+    bnez t0, ret_to_kernel
+#else
+    csrr t0, sstatus
+    li t1, 0x100
+    and t0, t0, t1
+    bnez t0, ret_to_kernel
+#endif
+
+ret_to_user:
+    # 要回到 U-mode：把剛剛存在 2*8(sp) 的 User SP 放回 scratch，並交換 SP
+    ld t0, 2*8(sp)
+#ifdef QEMU
+    csrw mscratch, t0
+#else
+    csrw sscratch, t0
+#endif
     addi sp, sp, 256
 
-    # 9. 再次交換！把存在 scratch 裡的 User SP 換回 sp，同時把 Kernel SP 存回 scratch
 #ifdef QEMU
     csrrw sp, mscratch, sp
     mret
 #else
     csrrw sp, sscratch, sp
+    sret
+#endif
+
+ret_to_kernel:
+    # 要回到 Kernel (巢狀中斷結束)：不需要交換，直接退回堆疊即可
+    addi sp, sp, 256
+#ifdef QEMU
+    mret
+#else
     sret
 #endif
