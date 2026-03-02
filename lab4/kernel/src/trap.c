@@ -8,8 +8,10 @@
 extern void timer_handler();
 extern void uart_isr(); 
 
+extern volatile int uart_interrupts_ready;
+
 void trap_handler() {
-    printf("\n[Trap] Entered trap handler!\n");
+    // printf("\n[Trap] Entered trap handler!\n");
     uint64_t scause = read_csr(scause);
     uint64_t sepc = read_csr(sepc);
     uint64_t sstatus = read_csr(sstatus);
@@ -38,7 +40,10 @@ void trap_handler() {
             sepc += 4;
             write_csr(sepc, sepc); // 💥 確保這一行存在，否則會無限迴圈執行同一條 ecall
         } else {
-            // 如果你在這裡看到 Code: 5，代表發生了 Load Access Fault
+            // 💥 死亡保險：系統崩潰時，強制退回 Polling 模式！
+            // 否則 printf 會卡死在 Non-blocking Buffer 裡，你什麼死因都看不到！
+            uart_interrupts_ready = 0; 
+            
             printf("\n[Exception] Code: %ld, epc: 0x%lx\n", scause, sepc);
             while(1); 
         }

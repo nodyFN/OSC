@@ -7,11 +7,17 @@
 #include "stdio.h"
 
 #define BUF_SIZE 256
+
+// 建立 RX 與 TX 緩衝區
 static char rx_buf[BUF_SIZE];
 static volatile int rx_head = 0;
 static volatile int rx_tail = 0;
 
-// Bottom Half 任務 (QEMU 與板子共用)
+static char tx_buf[BUF_SIZE];
+static volatile int tx_head = 0;
+static volatile int tx_tail = 0;
+
+// Bottom Half 任務：處理接收到的字元
 void uart_rx_bottom_half(void *arg) {
     char c = (char)(uintptr_t)arg; 
     int next_head = (rx_head + 1) % BUF_SIZE;
@@ -21,115 +27,129 @@ void uart_rx_bottom_half(void *arg) {
     }
 }
 
-// void uart_init() {
-// #ifdef QEMU
-//     *UART_FCR = 0x07; 
-//     *UART_MCR = 0x0B;
-//     *UART_IER = 0x01; 
-// #else
-//     // 💥 實體板子 (SpacemiT K1)：依照最新 Spec，只需設定 IER！
-//     // 1. 等待 Bootloader 把最後的 Log 印完，避免 Race Condition
-//     for (volatile int i = 0; i < 5000000; i++);
-//     while ((*UART_LSR & LSR_TX_IDLE) == 0);
-
-//     // 2. 疊加設定 RX 中斷 (IER = 0x01)，絕對不要碰 MCR！
-//     *UART_IER |= 0x01; 
-// #endif
-// }
 void uart_init() {
-    // 💥 雙平台統一：在 S-mode 下，我們儘量不要重置 UART 硬體
-    // 只需要確保中斷位元被打開即可
 #ifdef QEMU
-    // QEMU 的 S-mode 比較寬容，但保險起見，我們只動 IER
     *UART_IER = 0x01; 
 #else
-    // 板子的部分我們之前改過了，維持溫柔初始化
     for (volatile int i = 0; i < 5000000; i++);
     while ((*UART_LSR & LSR_TX_IDLE) == 0);
+    
+    // 💥 啟動 RX 中斷
     *UART_IER |= 0x01; 
+    
+    // 💥 開啟 OUT2，確保硬體中斷線路接通 PLIC
+    *UART_MCR |= 0x08; 
 #endif
 }
 
+// 💥 完美版 ISR：同時處理 RX 接收與 TX 發送
 void uart_isr() {
     while (1) {
-        uint32_t iir = *UART_IIR;  // 使用 uint32_t 容錯板子的 32-bit
-        if (iir & 0x01) break;     // 中斷處理完畢
+        uint32_t iir = *UART_IIR; 
+        if (iir & 0x01) break; // 1 代表沒有中斷了，跳出迴圈
         
         uint32_t id = (iir >> 1) & 0x0F;
         
         if (id == 2 || id == 6) { 
-            // 收到外部 RX 中斷！
+            // 收到 RX 中斷 (有字元進來)
             while (*UART_LSR & LSR_RX_READY) {
-                char c = (char)(*UART_RBR); 
-                // 將搬運任務推遲到 Queue 裡面，優先權 1
+                char c = (char)(*UART_RBR & 0xFF); 
                 add_task(uart_rx_bottom_half, (void *)(uintptr_t)c, 1);
+            }
+        }
+        else if (id == 1) { 
+            // 💥 收到 TX 中斷 (硬體發送完畢，THR 空了)
+            if (tx_head != tx_tail) {
+                // Buffer 裡面還有字，拿一個出來交給硬體發送
+                *UART_THR = tx_buf[tx_tail];
+                tx_tail = (tx_tail + 1) % BUF_SIZE;
+            } else {
+                // Buffer 空了，暫時關閉 TX 中斷，避免無限觸發
+                *UART_IER &= ~0x02; 
             }
         }
     }
 }
 
-void check_interrupt_pending() {
-    // uint64_t sip_val = read_csr(sip);
-    // if (sip_val & (1 << 9)) {
-    //     // 如果有噴出這一行，代表 PLIC 到 CPU 的電路是通的，只是 CPU 不肯跳進 Trap
-    //     printf(">> [DEBUG] SEIP is PENDING! sip: 0x%lx\n", sip_val);
-    // }
-}
-
+// 💥 真正的 Non-blocking Input
 char uart_getc() {
-    // 雙平台統一：無字元時檢查 Timer
-    while (rx_head == rx_tail) {
-        check_timer_events(); 
-        
-        // 💥 在這裡加入診斷代碼
-#ifndef QEMU
-        check_interrupt_pending(); 
-#endif
-
-        // 稍微延遲一下，避免噴太快看不清
-        for (volatile int i = 0; i < 100000; i++); 
-    }
+    // U-mode 純等待，Kernel 會在中斷背景把 rx_buf 填滿
+    while (rx_head == rx_tail); 
+    
     char c = rx_buf[rx_tail];
     rx_tail = (rx_tail + 1) % BUF_SIZE;
     return c;
 }
 
-// // 既然我們重啟了中斷，uart_getc 也要恢復成雙平台共用的 Ring Buffer 模式！
-// char uart_getc() {
-//     // 雙平台統一：無字元時檢查 Timer，有字元就從 Buffer 拿！
-//     while (rx_head == rx_tail) {
-//         check_timer_events(); 
-//     }
-//     char c = rx_buf[rx_tail];
-//     rx_tail = (rx_tail + 1) % BUF_SIZE;
-//     return c;
-// }
+// 💥 預設為 0，代表還在開機早期，中斷尚未啟用
+volatile int uart_interrupts_ready = 0;
+// void uart_putc(char c) {
+//     if (c == '\n') uart_putc('\r');
 
-// char uart_getc() {
+//     // 💡 邏輯切換：如果中斷還沒準備好 (開機階段)，強制使用 Polling
+//     if (!uart_interrupts_ready) {
 // #ifdef QEMU
-//     // QEMU 擁有完美的 UART 中斷，可以享受 Ring Buffer
-//     while (rx_head == rx_tail) {
-//         check_timer_events(); 
-//     }
-//     char c = rx_buf[rx_tail];
-//     rx_tail = (rx_tail + 1) % BUF_SIZE;
-//     return c;
+//         while ((*UART_LSR & 0x20) == 0); // QEMU 的 LSR_TX_IDLE
 // #else
-//     // 💥 實體板子 (SpacemiT K1) 終極回退：安全的 Polling 模式
-//     // 因為板子的 S-mode 沒有收到 PLIC 中斷，所以我們直接死盯著硬體看！
-//     while ((*UART_LSR & LSR_RX_READY) == 0) {
-//         check_timer_events(); // 依然能檢查 Timer，支援 setTimeout
-//         for (volatile int i = 0; i < 1000; i++); // 稍微延遲避免卡死 CPU
-//     }
-//     return (char)(*UART_RBR); // 直接從硬體拿字元
+//         while ((*UART_LSR & 0x20) == 0); // 板子的 LSR_TX_IDLE
 // #endif
-// }
+//         *UART_THR = c;
+//         return;
+//     }
 
+//     // 💡 進入 Shell 後，全面啟動 Non-blocking
+//     int next_head = (tx_head + 1) % BUF_SIZE;
+    
+//     // 稍微阻塞等待 (避免 Buffer 溢位)
+//     while (next_head == tx_tail); 
+    
+//     tx_buf[tx_head] = c;
+//     tx_head = next_head;
+    
+//     // 啟動 TX 中斷
+//     *UART_IER |= 0x02; 
+// }
 void uart_putc(char c) {
     if (c == '\n') uart_putc('\r');
-    while ((*UART_LSR & LSR_TX_IDLE) == 0);
-    *UART_THR = c;
+
+    // 1. 開機早期的 Polling 模式
+    if (!uart_interrupts_ready) {
+        while ((*UART_LSR & 0x20) == 0);
+        *UART_THR = c;
+        return;
+    }
+
+    // ==========================================
+    // 🚀 100% 純 Non-blocking 輸出
+    // ==========================================
+    int next_head = (tx_head + 1) % BUF_SIZE;
+    
+    // Buffer 滿了才稍作等待
+    while (next_head == tx_tail); 
+    
+    tx_buf[tx_head] = c;
+    tx_head = next_head;
+    
+    *UART_IER |= 0x02; // 開啟 TX 中斷
+    
+    // 💥 針對 QEMU (16550 UART) 的引擎點火機制！
+    // 解決中斷「解除武裝」的問題，手動送出第一發子彈！
+#ifdef QEMU
+    if (*UART_LSR & 0x20) { // 如果硬體現在是閒置的
+        if (tx_head != tx_tail) {
+            *UART_THR = tx_buf[tx_tail];
+            tx_tail = (tx_tail + 1) % BUF_SIZE;
+        }
+    }
+#endif
 }
+
+// void uart_putc(char c) {
+//     if (c == '\n') uart_putc('\r');
+//     while ((*UART_LSR & LSR_TX_IDLE) == 0);
+//     *UART_THR = c;
+// }
+
 
 void uart_puts(const char *str) {
     while (*str) {

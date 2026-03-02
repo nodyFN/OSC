@@ -15,6 +15,9 @@ extern char _stack_top[];
 extern void trap_vector();
 extern void timer_init();
 
+// 💥 宣告外部的 UART 狀態開關
+extern volatile int uart_interrupts_ready;
+
 void user_task() {
     printf("\n[User] Hello from U-mode! Doing some work...\n");
     for (volatile int i = 0; i < 30000000; i++);
@@ -46,23 +49,29 @@ void shell_task() {
 
 __attribute__((noinline, noreturn)) 
 void jump_to_user_mode() {
-    // 💥 雙平台統一：使用 S-mode 暫存器，不設定 PMP
+    void *user_stack = kmalloc(4096);
+    memset(user_stack, 0, 4096); 
+
+    // 💥 1. 先印字！這時候中斷隨便它觸發，我們的「登機證 (sepc)」還沒印出來。
+    printf("\n[Kernel] Switching to U-mode...\n");
+
+    // 💥 2. 關閉全域中斷！(進入 Critical Section)
+    // 確保接下來修改 sepc 和 sstatus 的過程中，絕對不會有硬體中斷跑來攪局！
+    clear_csr(sstatus, 1 << 1); 
+
+    // 💥 3. 安全地設定返回位址與降級狀態
     write_csr(sscratch, (uint64_t)_stack_top);
     write_csr(sepc, (uint64_t)shell_task);
 
     uint64_t status = read_csr(sstatus);
     status &= ~(1UL << 8);  // SPP = 0 (降級到 U-mode)
-    status |= (1UL << 5);   // SPIE = 1
+    status |= (1UL << 5);   // SPIE = 1 (保證 sret 之後，U-mode 的中斷會自動開啟)
     write_csr(sstatus, status);
 
-    void *user_stack = kmalloc(4096);
-    memset(user_stack, 0, 4096); 
-
-    printf("\n[Kernel] Switching to U-mode...\n");
-
+    // 💥 4. 完美起飛
     asm volatile(
         "mv sp, %0\n"
-        "sret\n"   // 💥 雙平台統一：sret
+        "sret\n"   
         :: "r"((uint64_t)user_stack + 4096)
         : "memory" 
     );
@@ -118,11 +127,13 @@ void main(uint64_t hartid, void *dtb) {
 
     printf("Testing Software-triggered Interrupt...\n");
     set_csr(sip, 1 << 9); // 手動立起 SEIP bit
-    
+
     // 💥 雙平台統一：開啟 S-mode 全域中斷 (SIE) 與外部中斷 (SEIE)
-    // 註：Timer 的 STIE 應該已經在你的 timer_init() 裡設定了
     set_csr(sstatus, 1 << 1); // sstatus.SIE = 1
     set_csr(sie, 1 << 9);     // sie.SEIE = 1
+
+    // 💥 終極關鍵：告訴 UART，中斷管線已經全部準備就緒！可以開始 Non-blocking 了！
+    uart_interrupts_ready = 1;
 
     jump_to_user_mode();
 
