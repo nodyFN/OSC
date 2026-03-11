@@ -36,14 +36,6 @@ struct sbiret sbi_ecall(int ext, int fid, unsigned long arg0,
     return ret;
 }
 
-
-long sbi_get_spec_version() {
-
-    struct sbiret ret = sbi_ecall(0x10, 0, 0, 0, 0, 0, 0, 0);
-    return ret.value;
-}
-
-
 long sbi_probe_extension(long extension_id) {
 
     struct sbiret ret = sbi_ecall(0x10, 3, extension_id, 0, 0, 0, 0, 0);
@@ -51,6 +43,22 @@ long sbi_probe_extension(long extension_id) {
     return ret.value;
 }
 
-void sbi_legacy_reboot() {
-    sbi_ecall(0x08, 0, 0, 0, 0, 0, 0, 0);
+long sbi_get_spec_version() {
+    // struct sbiret ret = sbi_ecall(0x10, 0, 0, 0, 0, 0, 0, 0);
+    struct sbiret ret = sbi_ecall(0x10, SBI_EXT_BASE_GET_SPEC_VERSION, 0, 0, 0, 0, 0, 0);
+    return ret.value;
+}
+
+long sbi_get_impl_id(){
+    struct sbiret ret = sbi_ecall(0x10, SBI_EXT_BASE_GET_IMP_ID, 0, 0, 0, 0, 0, 0);
+    return ret.value;
+}
+
+long sbi_get_impl_version(){
+    struct sbiret ret = sbi_ecall(0x10, SBI_EXT_BASE_GET_IMP_VERSION, 0, 0, 0, 0, 0, 0);
+    return ret.value;
+}
+
+void sbi_set_timer(uint64_t stime_value) {
+    sbi_ecall(SBI_EXT_TIME, 0, stime_value, 0, 0, 0, 0, 0);
 }

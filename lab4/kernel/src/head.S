@@ -13,5 +13,7 @@ bss_clear_loop:
     j bss_clear_loop
 
 bss_done:
+    la a2, handle_exception
+    csrw stvec, a2
     call main
     j .

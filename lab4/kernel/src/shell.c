@@ -104,25 +104,30 @@ void getCommand(char* buffer, int max_len) {
 }
 
 void processCommand(shell_t* shell) {
-    if(strcmp(shell->command, "reboot") == 0) {
-        uart_puts("Rebooting...\n");
-        sbi_legacy_reboot();
-        uart_puts("System Halt (Reboot failed, please press Reset button).\n");
-    }else if(strcmp(shell->command, "shutdown") == 0) {
-
+    if(strcmp(shell->command, "help") == 0){
+        printf("Available commands:\n");
+        printf("  help  - show all commands.\n");
+        printf("  hello - print Hello world.\n");
+        printf("  info  - print system info.\n");
+    }else if(strcmp(shell->command, "hello") == 0){
+        printf("Hello world.\n");
+    }else if(strcmp(shell->command, "info") == 0){
+        printf("System information:\n");
+        printf("   OpenSBI specification version: %lx\n", sbi_get_spec_version());
+        printf("   implementation ID: %lx\n", sbi_get_impl_id());
+        printf("   implementation version: %lx\n", sbi_get_impl_version());
     }else if(strcmp(shell->command, "ls") == 0) {
         initrd_list((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr);
     }else if(strncmp(shell->command, "cat ", 4) == 0) {
         char* filename = shell->command + 4;
         initrd_cat((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, filename);
-    }else if(strcmp(shell->command, "help") == 0) {
-    
+    }else if(strncmp(shell->command, "run ", 4) == 0){
+        char* filename = shell->command + 4;
+        initrd_exec((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, filename);
     }else{
-        uart_puts("Command not found: ");
-        uart_puts(shell->command);
-        uart_puts("\n");
+        printf("Unknown command: %s\n", shell->command);
+        printf("Use help to get commands.\n");
     }
-
 
 }
 

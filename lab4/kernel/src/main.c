@@ -5,6 +5,7 @@
 #include "utils.h"
 #include "initrd.h"
 #include "mm.h"
+#include "timer.h"
 
 struct KernelInfo kernel_info;
 
@@ -26,7 +27,9 @@ void main(uint64_t hartid, void *dtb) {
     }
     
     mm_init(dtb);
-    mm_test();
+    // mm_test();
+
+    timer_init();
 
     int32_t pid = 1;
 
