@@ -1,13 +1,55 @@
 #include "uart.h"
 #include <stdint.h>
 
-void uart_init() {
+#define BUF_SIZE 256
 
+struct ring_buffer {
+    char data[BUF_SIZE];
+    volatile int head;
+    volatile int tail;
+};
+
+struct ring_buffer tx_buf = { .head = 0, .tail = 0 };
+struct ring_buffer rx_buf = { .head = 0, .tail = 0 };
+int tx_is_empty(){ 
+    return tx_buf.head == tx_buf.tail;
+}
+
+void uart_init() {
+    // Enable RX and TX interrupt
+    *UART_IER = 0x03;
+
+    // Enable UART interrupt
+    *UART_MCR = (1 << 3);
+}
+
+void uart_trap_handler(){
+    uint8_t iir = *UART_IIR & 0x0F;
+
+    if(iir == 0x04 || iir == 0x0C){ 
+        // rx interrupt
+        while(*UART_LSR & 0x01){
+            char c = *UART_RBR;
+            rx_buf.data[rx_buf.head] = c;
+            rx_buf.head = (rx_buf.head + 1) % BUF_SIZE;
+        }
+    }else if(iir == 0x02){  
+        // tx       
+        if(!tx_is_empty()){
+            char c = tx_buf.data[tx_buf.tail];
+            tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
+            *UART_THR = c; 
+        }else{
+            *UART_IER &= ~0x02; 
+        }
+    }
 }
 
 void uart_putc(char c) {
-    while ((*UART_LSR & LSR_TX_IDLE) == 0);
-    *UART_THR = c;
+    tx_buf.data[tx_buf.head] = c;
+    tx_buf.head = (tx_buf.head + 1) % BUF_SIZE;
+
+    *UART_IER |= 0x02;
 }
 
 void uart_puts(const char *s) {
@@ -20,9 +62,14 @@ void uart_puts(const char *s) {
 }
 
 char uart_getc() {
-    while ((*UART_LSR & LSR_RX_READY) == 0);
+    while (rx_buf.head == rx_buf.tail) {
+        asm volatile("wfi");
+    }
 
-    return (char)(*UART_RBR & 0xFF);
+    char c = rx_buf.data[rx_buf.tail];
+    rx_buf.tail = (rx_buf.tail + 1) % BUF_SIZE;
+    
+    return c;
 }
 
 void uart_hex(unsigned long value) {

@@ -60,5 +60,6 @@ long sbi_get_impl_version(){
 }
 
 void sbi_set_timer(uint64_t stime_value) {
-    sbi_ecall(SBI_EXT_TIME, 0, stime_value, 0, 0, 0, 0, 0);
+    // sbi_ecall(SBI_EXT_TIME, 0, stime_value, 0, 0, 0, 0, 0);
+    sbi_ecall(0x00, 0, stime_value, 0, 0, 0, 0, 0);
 }

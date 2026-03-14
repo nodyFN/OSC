@@ -2,6 +2,7 @@
 #include "stdio.h"
 #include "uart.h"
 #include "timer.h"
+#include "plic.h"
 
 void kernel_resume() {
     printf("\nKernel resumed! Back to idle loop.\n");
@@ -20,6 +21,14 @@ void do_trap(struct pt_regs* regs){
             uint64_t seconds_after_boot = current_time / TIMERBASE_FREQ;
             printf("Tick! %d seconds after booting.\n", seconds_after_boot);
             set_next_timer(2);
+        }else if(exception_code == 9){ // PLIC
+            int irq = plic_claim();
+            if(irq == UART_IRQ){
+                uart_trap_handler();
+            }
+            if(irq){
+                plic_complete(irq);
+            }
         }
     }else{
         if(regs->scause == 8){

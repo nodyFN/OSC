@@ -228,10 +228,15 @@ int fdt_path_offset(const void *fdt, const char *path){
                 name_len++;
             }
 
-            if (strcmp(current_path, path) == 0) {
+            // if (strcmp(current_path, path) == 0) {
+            //     return (uint64_t)token_addr - (uint64_t)fdt;
+            // }
+            if (strncmp(current_path, path, strlen(path)) == 0) {
+                // printf("Want path: %s, Got path: %s\n", path, current_path);
                 return (uint64_t)token_addr - (uint64_t)fdt;
+            }else{
+                printf("Want path: %s, now path: %s\n", path, current_path);
             }
-
 
 
 
@@ -304,11 +309,12 @@ const void *fdt_getprop(const void *fdt, int nodeoffset, const char *name, int *
 
 int fdt_get_memory_info(void *dtb, uint64_t *base, uint64_t *size) {
     int mem_offset = -1;
-    #ifdef QEMU
-        mem_offset = fdt_path_offset(dtb, "/memory@80000000");
-    #else
-        mem_offset = fdt_path_offset(dtb, "/memory@0");
-    #endif
+    // #ifdef QEMU
+    //     mem_offset = fdt_path_offset(dtb, "/memory@80000000");
+    // #else
+    //     mem_offset = fdt_path_offset(dtb, "/memory@0");
+    // #endif
+    mem_offset = fdt_path_offset(dtb, "/memory");
     if (mem_offset < 0) {
         printf("[Failed] Path /memory@... not found in FDT.\n");
         return -1;

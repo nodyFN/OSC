@@ -6,11 +6,15 @@
 #include "initrd.h"
 #include "mm.h"
 #include "timer.h"
+#include "plic.h"
+
+void irq_enable() {
+    asm volatile("csrsi sstatus, (1 << 1)");
+}
 
 struct KernelInfo kernel_info;
 
 void main(uint64_t hartid, void *dtb) {
-    uart_init();
     printf("\nkernel: \n");
     printf(">> [Kernel] Booted successfully!\n");
     printf(">> [Kernel] Hart ID: %lx\n", hartid);
@@ -27,9 +31,11 @@ void main(uint64_t hartid, void *dtb) {
     }
     
     mm_init(dtb);
-    // mm_test();
 
     timer_init();
+    plic_init();
+    uart_init();
+    irq_enable();
 
     int32_t pid = 1;
 
