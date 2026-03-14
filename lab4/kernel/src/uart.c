@@ -17,7 +17,7 @@ int tx_is_empty(){
 
 void uart_init() {
     // Enable RX and TX interrupt
-    *UART_IER = 0x03;
+    *UART_IER = 0x01;
 
     // Enable UART interrupt
     *UART_MCR = (1 << 3);
