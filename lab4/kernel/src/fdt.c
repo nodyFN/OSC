@@ -235,7 +235,7 @@ int fdt_path_offset(const void *fdt, const char *path){
                 // printf("Want path: %s, Got path: %s\n", path, current_path);
                 return (uint64_t)token_addr - (uint64_t)fdt;
             }else{
-                printf("Want path: %s, now path: %s\n", path, current_path);
+                // printf("Want path: %s, now path: %s\n", path, current_path);
             }
 
 

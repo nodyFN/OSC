@@ -43,6 +43,9 @@ void uart_hex_32(uint32_t value);
 void uart_hex_no_newline(unsigned long value);
 void uart_hex_no_newline_32(uint32_t value);
 
+extern int uart_async_enabled;
+void uart_flush();
+
 #define KEY_ENTER 13      // \r
 #define KEY_BACKSPACE 127 // or 8 (\b)
 #define KEY_ESC 27

@@ -206,42 +206,46 @@ void init_pool_page(struct page *p, int chunk_size) {
 void *kmalloc(size_t size) {
     if (size == 0) return NULL;
     
+    uint64_t irq_flags;
+    local_irq_save(irq_flags);
+    
+    void *ret_ptr = NULL;
+    
     int idx = get_pool_index(size);
     if (idx < 0) {
         int order = 0;
         while ((PAGE_SIZE << order) < size) order++;
         struct page *p = alloc_pages(order);
-        if (!p) return NULL;
-        p->pool_size = 0;
-        return (void *)page_to_phys(p);
-    }
-
-    int chunk_size = get_pool_size(idx);
-    
-    if (page_cache[idx] == NULL) {
-        struct page *new_page = alloc_pages(0);
-        if (!new_page) return NULL;
-        
-        init_pool_page(new_page, chunk_size);
-        
-        page_cache[idx] = new_page;
-    }
-
-    struct page *p = page_cache[idx];
-    void *ret = p->freelist;
-    
-    if (ret) {
-        p->freelist = (void *)(*(uint64_t *)ret);
-        p->free_count--;
+        if (p) {
+            p->pool_size = 0;
+            ret_ptr = (void *)page_to_phys(p);
+        }
     } else {
-        return NULL; 
+        int chunk_size = get_pool_size(idx);
+        
+        if (page_cache[idx] == NULL) {
+            struct page *new_page = alloc_pages(0);
+            if (new_page) {
+                init_pool_page(new_page, chunk_size);
+                page_cache[idx] = new_page;
+            }
+        }
+        if (page_cache[idx] != NULL) {
+            struct page *p = page_cache[idx];
+            ret_ptr = p->freelist;
+            
+            if (ret_ptr) {
+                p->freelist = (void *)(*(uint64_t *)ret_ptr);
+                p->free_count--;
+                if (p->free_count == 0) {
+                    page_cache[idx] = NULL; 
+                }
+            }
+        }
     }
 
-    if (p->free_count == 0) {
-        page_cache[idx] = NULL; 
-    }
-
-    return ret;
+    local_irq_restore(irq_flags);
+    return ret_ptr;
 }
 
 void kfree(void *ptr) {
@@ -250,28 +254,32 @@ void kfree(void *ptr) {
     struct page *p = phys_to_page((uint64_t)ptr);
     if (!p) return;
 
+    uint64_t irq_flags;
+    local_irq_save(irq_flags); 
+
     if (p->pool_size == 0) {
         free_pages(p, p->order);
-        return;
-    }
-
-    *(uint64_t *)ptr = (uint64_t)p->freelist;
-    p->freelist = ptr;
-    p->free_count++;
-
-    if (p->free_count == (PAGE_SIZE / p->pool_size)) {
-        int idx = get_pool_index(p->pool_size);
-        if (page_cache[idx] == p) {
-            page_cache[idx] = NULL;
-        }
-        p->pool_size = 0;
-        free_pages(p, 0);
     } else {
-        int idx = get_pool_index(p->pool_size);
-        if (page_cache[idx] == NULL) {
-            page_cache[idx] = p;
+        *(uint64_t *)ptr = (uint64_t)p->freelist;
+        p->freelist = ptr;
+        p->free_count++;
+
+        if (p->free_count == (PAGE_SIZE / p->pool_size)) {
+            int idx = get_pool_index(p->pool_size);
+            if (page_cache[idx] == p) {
+                page_cache[idx] = NULL;
+            }
+            p->pool_size = 0;
+            free_pages(p, 0);
+        } else {
+            int idx = get_pool_index(p->pool_size);
+            if (page_cache[idx] == NULL) {
+                page_cache[idx] = p;
+            }
         }
     }
+
+    local_irq_restore(irq_flags);
 }
 
 void mm_test() {

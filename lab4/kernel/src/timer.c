@@ -30,5 +30,5 @@ void timer_init(){
 
     set_next_timer(0);
     __asm__ volatile("csrs sie, %0" : : "r"(1 << 5));
-    __asm__ volatile("csrs sstatus, %0" : : "r"(1 << 1));
+    // __asm__ volatile("csrs sstatus, %0" : : "r"(1 << 1));
 }
