@@ -7,6 +7,7 @@
 #include "fdt.h"
 #include "utils.h"
 #include "stdio.h"
+#include "timer.h"
 
 extern struct KernelInfo kernel_info;
 
@@ -124,6 +125,8 @@ void processCommand(shell_t* shell) {
     }else if(strncmp(shell->command, "run ", 4) == 0){
         char* filename = shell->command + 4;
         initrd_exec((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, filename);
+    }else if(strcmp(shell->command, "timertest") == 0){
+        timer_event_test();
     }else{
         printf("Unknown command: %s\n", shell->command);
         printf("Use help to get commands.\n");

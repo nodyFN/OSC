@@ -36,6 +36,15 @@ static inline int list_empty(const struct list_head *head) {
     return head->next == head;
 }
 
+static inline void list_add_tail(struct list_head *new, struct list_head *head) {
+    struct list_head *prev = head->prev;
+
+    prev->next = new;
+    new->prev = prev;
+    new->next = head;
+    head->prev = new;
+}
+
 #ifndef offsetof
 #define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
 #endif
