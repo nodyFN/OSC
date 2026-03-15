@@ -15,26 +15,11 @@ int tx_is_empty(){
     return tx_buf.head == tx_buf.tail;
 }
 
-int uart_async_enabled = 0;
-
-void uart_flush() {
-    // 0x40 (二進位 0100 0000) 是 LSR 暫存器的 TEMT (Transmitter Empty) 位元
-    // 當它變成 1 時，代表不僅軟體緩衝區空了，連 UART 硬體底層的「實體移位暫存器」也把最後一個 bit 送出去了。
-    while ((*UART_LSR & 0x40) == 0) {
-        // 死等，直到硬體傳輸完全結束
-    }
-}
+volatile int uart_async_enabled = 0;
 
 void uart_init() {
-    uart_puts("[UART_INIT]: enable rx interrupt\n");
-    uart_flush();
-    // Enable RX and TX interrupt
-    *UART_IER = 0x01;
-
-    uart_puts("[UART_INIT]: enable MCR\n");
-    uart_flush();
-    // Enable UART interrupt
-    *UART_MCR = (1 << 3);
+    *UART_IER |= 0x01;
+    *UART_MCR |= (1 << 3);
 }
 
 void uart_trap_handler(){
@@ -60,14 +45,39 @@ void uart_trap_handler(){
 }
 
 void uart_putc(char c) {
-    if (!uart_async_enabled) {
-        // 【早期模式】死等硬體發送完畢，確保文字一定印得出來！
-        while ((*UART_LSR & LSR_TX_IDLE) == 0);
+    uint64_t sstatus;
+    asm volatile("csrr %0, sstatus" : "=r"(sstatus));
+    int irq_enabled = (sstatus & (1 << 1));
+
+    if (!uart_async_enabled || !irq_enabled) {
+        while (tx_buf.head != tx_buf.tail) {
+            while ((*UART_LSR & 0x20) == 0);
+            *UART_THR = tx_buf.data[tx_buf.tail];
+            tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
+        }
+
+        while ((*UART_LSR & 0x20) == 0);
         *UART_THR = c;
+        return;
     } else {
-        // 【非同步模式】中斷系統 Ready 後才使用這套
+        int next_head = (tx_buf.head + 1) % BUF_SIZE;
+        while (next_head == tx_buf.tail) {
+            asm volatile("wfi");
+        }
+
+        *UART_IER &= ~0x02;
+
         tx_buf.data[tx_buf.head] = c;
         tx_buf.head = (tx_buf.head + 1) % BUF_SIZE;
+
+        if (*UART_LSR & 0x20) {
+            if (tx_buf.head != tx_buf.tail) {
+                char next_c = tx_buf.data[tx_buf.tail];
+                tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
+                *UART_THR = next_c;
+            }
+        }
+
         *UART_IER |= 0x02;
     }
 }

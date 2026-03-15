@@ -31,26 +31,14 @@ void main(uint64_t hartid, void *dtb) {
     }
     
     mm_init(dtb);
-
     timer_init();
-
-    printf("[MAIN] About to call plic_init...\n");
-    uart_flush();
     plic_init();
-
-    printf("[MAIN] Calling uart_init...\n"); 
-    uart_flush();
     uart_init();
-
-    printf("[MAIN] Enabling IRQ...\n");
-    uart_flush();
-    uart_async_enabled = 1;
     irq_enable();
 
-    printf("[MAIN] IRQ Enabled. Starting mm_test...\n");
-    uart_flush();
-    mm_test();
-
+    // mm_test();
+    
+    uart_async_enabled = 1;
     int32_t pid = 1;
 
     while(1){
