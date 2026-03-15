@@ -7,6 +7,7 @@
 #include "mm.h"
 #include "timer.h"
 #include "plic.h"
+#include "task.h"
 
 void irq_enable() {
     asm volatile("csrsi sstatus, (1 << 1)");
@@ -31,6 +32,7 @@ void main(uint64_t hartid, void *dtb) {
     }
     
     mm_init(dtb);
+    task_init();
     timer_init();
     plic_init();
     uart_init();

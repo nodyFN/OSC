@@ -3,6 +3,7 @@
 #include "uart.h"
 #include "timer.h"
 #include "plic.h"
+#include "task.h"
 
 void kernel_resume() {
     printf("\nKernel resumed! Back to idle loop.\n");
@@ -41,4 +42,5 @@ void do_trap(struct pt_regs* regs){
 
         regs->sepc += 4;
     }
+    run_tasks();
 }

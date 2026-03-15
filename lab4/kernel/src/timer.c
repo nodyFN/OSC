@@ -4,6 +4,7 @@
 #include "utils.h"
 #include "stdio.h"
 #include "mm.h"
+#include "task.h"
 
 uint64_t TIMERBASE_FREQ = 0x989680;
 
@@ -104,7 +105,7 @@ void timer_handler(){
             list_del(&first->list);
 
             if (first->callback) {
-                first->callback(first->arg);
+                add_task(first->callback, first->arg, 5);
             }
 
             kfree(first);
@@ -117,7 +118,7 @@ void timer_handler(){
         struct timer_event *next_timer = list_entry(timer_list.next, struct timer_event, list);
         set_next_timer_absolute(next_timer->expire_time);
     } else {
-        
+        set_next_timer_absolute(-1ULL);
     }
 }
 

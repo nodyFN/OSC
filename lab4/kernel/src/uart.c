@@ -1,7 +1,12 @@
-#include "uart.h"
 #include <stdint.h>
+#include "uart.h"
+#include "task.h"
 
 #define BUF_SIZE 256
+
+void uart_rx_bottom_half(void *arg) {
+
+}   
 
 struct ring_buffer {
     char data[BUF_SIZE];
@@ -31,6 +36,8 @@ void uart_trap_handler(){
             char c = *UART_RBR;
             rx_buf.data[rx_buf.head] = c;
             rx_buf.head = (rx_buf.head + 1) % BUF_SIZE;
+
+            add_task(uart_rx_bottom_half, NULL, 1);
         }
     }else if(iir == 0x02){  
         // tx       
@@ -61,14 +68,12 @@ void uart_putc(char c) {
         return;
     } else {
         int next_head = (tx_buf.head + 1) % BUF_SIZE;
-        while (next_head == tx_buf.tail) {
-            asm volatile("wfi");
-        }
+        while (next_head == tx_buf.tail);
 
         *UART_IER &= ~0x02;
 
         tx_buf.data[tx_buf.head] = c;
-        tx_buf.head = (tx_buf.head + 1) % BUF_SIZE;
+        tx_buf.head = next_head;
 
         if (*UART_LSR & 0x20) {
             if (tx_buf.head != tx_buf.tail) {
@@ -93,7 +98,11 @@ void uart_puts(const char *s) {
 
 char uart_getc() {
     while (rx_buf.head == rx_buf.tail) {
-        asm volatile("wfi");
+        uint64_t sstatus;
+        asm volatile("csrr %0, sstatus" : "=r"(sstatus));
+        if (sstatus & (1 << 1)) {
+            asm volatile("wfi");
+        } 
     }
 
     char c = rx_buf.data[rx_buf.tail];
