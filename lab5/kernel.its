@@ -1,0 +1,61 @@
+/dts-v1/;
+
+/ {
+    description = "FIT Image with Bootloader, DTB, and Ramdisk";
+    #address-cells = <1>;
+
+    images {
+        default = "bootloader";
+        
+        /* 1. Bootloader */
+        bootloader {
+            description = "My Custom Bootloader";
+            data = /incbin/("payload.bin");
+            type = "kernel";
+            arch = "riscv";
+            os = "linux";
+            compression = "none";
+            load = <0x40200000>;
+            entry = <0x40200000>;
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+
+        /* 2. Device Tree */
+        fdt {
+            description = "Custom Device Tree";
+            data = /incbin/("board.dtb");
+            type = "flat_dt";
+            arch = "riscv";
+            compression = "none";
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+
+        /* 3. [新增] Ramdisk */
+        ramdisk {
+            description = "Initial Ramdisk";
+            data = /incbin/("ramdisk.cpio"); /* 對應 Makefile 的暫存檔 */
+            type = "ramdisk";
+            arch = "riscv";
+            os = "linux";
+            compression = "none";
+            /* 不指定 load 位址，讓 U-Boot 自動找空位放 */
+            hash-1 {
+                algo = "sha256";
+            };
+        };
+    };
+
+    configurations {
+        default = "config-1";
+        config-1 {
+            description = "Full System Boot";
+            kernel = "bootloader";
+            fdt = "fdt";
+            ramdisk = "ramdisk"; /* [關鍵] 告訴 U-Boot 這裡有 Ramdisk */
+        };
+    };
+};
