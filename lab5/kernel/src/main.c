@@ -8,6 +8,7 @@
 #include "timer.h"
 #include "plic.h"
 #include "task.h"
+#include "thread.h"
 
 void irq_enable() {
     asm volatile("csrsi sstatus, (1 << 1)");
@@ -33,18 +34,23 @@ void main(uint64_t hartid, void *dtb) {
     
     mm_init(dtb);
     task_init();
-    timer_init();
+    // timer_init();
     plic_init();
     uart_init();
-    irq_enable();
+    // irq_enable();
 
     // mm_test();
     
-    uart_async_enabled = 1;
-    int32_t pid = 1;
+    // uart_async_enabled = 1;
 
-    while(1){
-        runAShell(++pid);
-    }
+    asm volatile("move tp, %0" : : "r"(kthread_create(thread_idle)));
+    for (int i = 0; i < 3; i++)
+        kthread_create(thread_foo);
+    thread_idle();
+    // int32_t pid = 1;
+
+    // while(1){
+    //     runAShell(++pid);
+    // }
 
 }

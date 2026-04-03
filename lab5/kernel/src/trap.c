@@ -42,5 +42,5 @@ void do_trap(struct pt_regs* regs){
 
         regs->sepc += 4;
     }
-    run_tasks();
+    // run_tasks();
 }
