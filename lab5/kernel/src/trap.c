@@ -43,11 +43,20 @@ void do_trap(struct pt_regs* regs){
                 long count = regs->a1;
 
                 long ret_count = 0;
+
+                // 1. 【關鍵】打開 Kernel 中斷 (SIE = 1)，允許 UART RX 中斷進來
+                asm volatile("csrsi sstatus, 2");
+
                 for(int i=0;i<count;i++){
-                    char c = uart_getc_sync();
+                    // char c = uart_getc_sync();
+                    char c = uart_getc();
                     *(buf + i) = c;
                     ret_count++;
                 }
+
+                // 3. 【關鍵】關閉 Kernel 中斷，確保能安全且不受打擾地返回 User Mode
+                asm volatile("csrci sstatus, 2");
+
                 regs->a0 = ret_count;
                 regs->sepc += 4;
                 return;      
@@ -57,10 +66,17 @@ void do_trap(struct pt_regs* regs){
                 long count = regs->a1;
                 
                 long ret_count = 0;
+
+                // 1. 【關鍵】打開 Kernel 中斷 (SIE = 1)，讓 UART TX 可以非同步消耗 Ring Buffer
+                asm volatile("csrsi sstatus, 2");
+
                 for(int i=0;i<count;i++){
                     uart_putc(buf[i]);
                     ret_count++;
                 }
+
+                // 2. 【關鍵】關閉 Kernel 中斷
+                asm volatile("csrci sstatus, 2");
 
                 regs->a0 = ret_count;
                 regs->sepc += 4;
@@ -180,5 +196,5 @@ void do_trap(struct pt_regs* regs){
         }
         regs->sepc += 4;
     }
-    // run_tasks();
+    run_tasks();
 }

@@ -49,6 +49,7 @@ void schedule() {
 
 void thread_idle() {
     while (1) {
+        asm volatile("csrsi sstatus, 2"); // 2 對應到 SIE (bit 1)
         // for (int i = 0; i < 100000000; i++);
         // printf("Idling...\n");
         kill_zombies();
