@@ -10,6 +10,7 @@
 #include "task.h"
 #include "thread.h"
 #include "system_call.h"
+#include "ecall_helper.h"
 
 void init_process() {
     int ret = exec("osctest.bin");
@@ -46,6 +47,7 @@ void main(uint64_t hartid, void *dtb) {
     plic_init();
     uart_init();
     irq_enable();
+    ecall_helper_commit();
 
     // mm_test();
     
@@ -55,7 +57,6 @@ void main(uint64_t hartid, void *dtb) {
     user_process_create(init_process);
     thread_idle();
     
-    // 3. 【刪除或註解掉舊的 Kernel Shell】
     // int32_t pid = 1;
     // while(1){
     //     runAShell(++pid);
