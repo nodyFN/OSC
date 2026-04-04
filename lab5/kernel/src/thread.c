@@ -1,11 +1,12 @@
 #include "thread.h"
 #include "stdio.h"
 #include "mm.h"
+#include "trap.h"
 
-static int nr_threads = 0;
-static struct task_struct* run_queue = 0;
+int nr_threads = 0;
+struct task_struct* run_queue = 0;
 
-static void enqueue(struct task_struct** queue, struct task_struct* task) {
+void enqueue(struct task_struct** queue, struct task_struct* task) {
     if (*queue == 0) {
         *queue = task;
         task->next = task;
@@ -48,7 +49,7 @@ void schedule() {
 
 void thread_idle() {
     while (1) {
-        for (int i = 0; i < 100000000; i++);
+        // for (int i = 0; i < 100000000; i++);
         // printf("Idling...\n");
         kill_zombies();
         schedule();
@@ -75,7 +76,8 @@ void thread_foo() {
 struct task_struct* kthread_create(void (*threadfn)()) {
     struct task_struct* task = kmalloc(sizeof(struct task_struct));
     task->pid = nr_threads++;
-    task->stack = (unsigned long)alloc_pages(3);
+    struct page* kpage = alloc_pages(3);
+    task->stack = page_to_phys(kpage);
     task->stack_page_order = 3;
     task->thread.ra = (unsigned long)threadfn;
     #define STACK_SIZE 0x8000
@@ -95,9 +97,8 @@ void kill_zombies(){
     struct task_struct *prev = run_queue;
     while(current != run_queue){
         if(current->status == TERMINATED){
-            // printf("pid = %d is zombie\n", current->pid);
             prev->next = current->next;
-            free_pages((struct page*)current->stack, current->stack_page_order);
+            free_pages(phys_to_page(current->stack), current->stack_page_order);
             kfree(current);
             current = prev->next;
         }else{
@@ -105,4 +106,39 @@ void kill_zombies(){
             current = current->next;
         }
     }
+}
+
+extern void ret_from_exception();
+
+struct task_struct* user_process_create(void (*user_func)()){
+    struct task_struct* task = kmalloc(sizeof(struct task_struct));
+    task->pid = nr_threads++;
+    task->status = READY;
+
+    task->stack_page_order = 3;
+    struct page* kpage = alloc_pages(task->stack_page_order);
+    task->stack = page_to_phys(kpage);
+    task->kernel_sp = task->stack + 0x8000; // 32KB
+
+    task->user_stack_page_order = 0;
+    struct page* upage = alloc_pages(task->user_stack_page_order);
+    task->user_stack = page_to_phys(upage);
+    task->user_sp = task->user_stack + 0x1000;
+
+    struct pt_regs *regs = (struct pt_regs *)(task->kernel_sp - sizeof(struct pt_regs));
+
+    for (int i = 0; i < sizeof(struct pt_regs); i++) {
+        ((char*)regs)[i] = 0;
+    }
+
+    regs->tp = (uint64_t)task;
+    regs->sepc = (uint64_t)user_func;
+    regs->sp = task->user_sp;
+    regs->sstatus |= (1 << 5);
+
+    task->thread.ra = (unsigned long)ret_from_exception;
+    task->thread.sp = (unsigned long)regs;
+
+    enqueue(&run_queue, task);
+    return task;
 }

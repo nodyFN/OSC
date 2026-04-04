@@ -52,6 +52,9 @@ void uart_trap_handler(){
 }
 
 void uart_putc(char c) {
+    if(c == '\n'){
+        uart_putc('\r');
+    }
     uint64_t sstatus;
     asm volatile("csrr %0, sstatus" : "=r"(sstatus));
     int irq_enabled = (sstatus & (1 << 1));
@@ -145,4 +148,12 @@ void uart_hex_no_newline_32(uint32_t value){
         uint32_t nibble = (value >> shift) & 0xF;
         uart_putc(hex[nibble]);
     }
+}
+
+char uart_getc_sync() {
+
+    while ((*UART_LSR & LSR_RX_READY) == 0);
+    
+
+    return (char)(*UART_RBR & 0xFF);
 }

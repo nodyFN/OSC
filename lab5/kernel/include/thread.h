@@ -17,6 +17,8 @@ struct task_struct {
     unsigned long user_sp;
     unsigned long stack;
     int stack_page_order;
+    unsigned long user_stack;
+    int user_stack_page_order;
     struct task_struct* next;
 }; 
 
@@ -26,5 +28,9 @@ void thread_idle();
 void schedule();
 void thread_exit();
 void kill_zombies();
+struct task_struct* get_current();
+void enqueue(struct task_struct** queue, struct task_struct* task);
+
+struct task_struct* user_process_create(void (*user_func)());
 
 #endif
