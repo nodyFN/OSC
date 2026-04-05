@@ -12,6 +12,9 @@ void exit_ecall_helper(struct pt_regs* regs);
 void stop_ecall_helper(struct pt_regs* regs);
 void display_ecall_helper(struct pt_regs* regs);
 void usleep_ecall_helper(struct pt_regs* regs);
+void signal_ecall_helper(struct pt_regs* regs);
+void sigreturn_ecall_helper(struct pt_regs* regs);
+void kill_ecall_helper(struct pt_regs* regs);
 
 void unknown_ecall_helper(struct pt_regs* regs);
 

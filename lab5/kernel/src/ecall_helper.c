@@ -29,6 +29,9 @@ void ecall_helper_commit(){
     ecall_helper_list[6] = stop_ecall_helper;
     ecall_helper_list[7] = display_ecall_helper;
     ecall_helper_list[8] = usleep_ecall_helper;
+    ecall_helper_list[9] = signal_ecall_helper;
+    ecall_helper_list[10] = sigreturn_ecall_helper;
+    ecall_helper_list[11] = kill_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -108,6 +111,11 @@ void fork_ecall_helper(struct pt_regs* regs){
     struct task_struct* parent = get_current();
     struct task_struct* child = kmalloc(sizeof(struct task_struct));
     memcpy((void*)child, (void*)parent, sizeof(*parent));
+
+    // 【新增】：剛出生的嬰兒不應該繼承父母的待辦事項與處理狀態
+    child->sigpending = 0;
+    child->is_handling_signal = 0;
+    child->signal_stack_page = 0;
 
     child->pid = nr_threads++; 
     child->status = READY;
@@ -191,15 +199,9 @@ void stop_ecall_helper(struct pt_regs* regs){
     return;
 }
 
-int tem = 0;
 void unknown_ecall_helper(struct pt_regs* regs){
-    
     if (regs->scause == 8) {
-        tem++;
-        if(tem <=15){
-            printf("[Kernel Warning] Unhandled Syscall! a7 = %ld\n", regs->a7);
-        }
-        
+        printf("[Kernel Warning] Unhandled Syscall! a7 = %ld\n", regs->a7);    
     } else {
         printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
     }
@@ -239,5 +241,70 @@ void usleep_ecall_helper(struct pt_regs* regs) {
     asm volatile("csrci sstatus, 2");
 
     regs->a0 = 0;
+    regs->sepc += 4;
+}
+
+void signal_ecall_helper(struct pt_regs* regs) {
+    // 9 signal
+    int signum = regs->a0;
+    uint64_t handler = regs->a1;
+
+    if (signum >= 0 && signum < 32) {
+        get_current()->signal_handler[signum] = handler;
+        regs->a0 = 0;
+    } else {
+        regs->a0 = -1;
+    }
+
+    regs->sepc += 4;
+}
+
+void sigreturn_ecall_helper(struct pt_regs* regs) {
+    // 10 sigreturn
+    struct task_struct *current = get_current();
+
+    struct page* sig_page = phys_to_page(current->signal_stack_page);
+    free_pages(sig_page, 0); 
+    
+    *regs = current->signal_saved_regs;
+
+    current->is_handling_signal = 0;
+}
+
+void kill_ecall_helper(struct pt_regs* regs) {
+    // 11 kill
+    int target_pid = regs->a0;
+    int signum = regs->a1;
+    
+    if (signum < 0 || signum >= 32 || target_pid == 0) {
+        regs->a0 = -1;
+        regs->sepc += 4;
+        return;
+    }
+
+    int found = 0;
+    if (run_queue != 0) {
+        struct task_struct *task = run_queue->next;
+        struct task_struct *head = task;
+        do {
+            if (task->pid == target_pid) {
+                found = 1;
+                if (task->signal_handler[signum] != 0) {
+                    task->sigpending |= (1 << signum);
+                } else {
+                    task->status = TERMINATED;
+                }
+                break;
+            }
+            task = task->next;
+        } while (task != head);
+    }
+
+    if (found) {
+        regs->a0 = 0;
+    } else {
+        regs->a0 = -1;
+    }
+    
     regs->sepc += 4;
 }
