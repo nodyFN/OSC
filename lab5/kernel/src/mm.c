@@ -166,7 +166,7 @@ void mm_init(void *dtb) {
     }
     
     // dump_buddy_info();
-    print_log = 1;
+    // print_log = 1;
 }
 
 #define POOL_COUNT 8 

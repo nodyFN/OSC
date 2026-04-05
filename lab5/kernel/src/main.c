@@ -11,6 +11,7 @@
 #include "thread.h"
 #include "system_call.h"
 #include "ecall_helper.h"
+#include "video.h"
 
 void init_process() {
     int ret = exec("osctest.bin");
@@ -48,6 +49,7 @@ void main(uint64_t hartid, void *dtb) {
     uart_init();
     irq_enable();
     ecall_helper_commit();
+    video_init();
 
     // mm_test();
     

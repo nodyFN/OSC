@@ -35,7 +35,8 @@ MY_RAMDISK     = initramfs.cpio
 BOOT_CMD       = boot.cmd
 BOOT_SCR       = boot.scr
 
-CFLAGS = -mcmodel=medany -ffreestanding -nostdlib -g -Wall -Iinclude -march=rv64gc_zifencei -mabi=lp64d
+# CFLAGS = -mcmodel=medany -ffreestanding -nostdlib -g -Wall -Iinclude -march=rv64gc_zifencei -mabi=lp64d
+CFLAGS = -mcmodel=medany -ffreestanding -nostdlib -g -Wall -Iinclude -march=rv64gc_zicbom_zifencei -mabi=lp64d
 
 ifeq ($(PLATFORM),qemu)
     BL_LD_SCRIPT = bootloader/qemu.ld
@@ -100,12 +101,13 @@ build-all: $(KERNEL_BIN) $(BOOTLOADER_BIN)
 
 run-qemu: build-all
 	@echo "Running QEMU..."
-	$(QEMU) -M virt -m 256M -display none \
-            -serial pty \
-            -monitor stdio \
-            -bios default \
-            -initrd $(MY_RAMDISK) \
-            -kernel $(BOOTLOADER_ELF)
+	$(QEMU) -M virt -m 256M \
+			-serial pty \
+			-bios default \
+			-initrd $(MY_RAMDISK) \
+			-kernel $(BOOTLOADER_ELF) \
+			-device ramfb \
+			-vnc 0.0.0.0:0
 
 $(KERNEL_BIN): $(KERNEL_ELF)
 	@echo "  OBJCOPY $@"

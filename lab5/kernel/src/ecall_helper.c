@@ -7,6 +7,7 @@
 #include "string.h"
 #include "mm.h"
 #include "stdio.h"
+#include "video.h"
 
 extern struct KernelInfo kernel_info;
 extern int nr_threads;
@@ -26,6 +27,8 @@ void ecall_helper_commit(){
     ecall_helper_list[4] = fork_ecall_helper;
     ecall_helper_list[5] = exit_ecall_helper;
     ecall_helper_list[6] = stop_ecall_helper;
+    ecall_helper_list[7] = display_ecall_helper;
+    ecall_helper_list[8] = usleep_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -142,7 +145,7 @@ void fork_ecall_helper(struct pt_regs* regs){
 
 void exit_ecall_helper(struct pt_regs* regs){
     // 5 exit
-    int status = regs->a0; 
+    // int status = regs->a0; 
     // printf("[Kernel] Process %d exited with status %d\n", get_current()->pid, status);
     thread_exit();
 }
@@ -188,13 +191,54 @@ void stop_ecall_helper(struct pt_regs* regs){
     return;
 }
 
+int tem = 0;
 void unknown_ecall_helper(struct pt_regs* regs){
+    
     if (regs->scause == 8) {
-        printf("[Kernel Warning] Unhandled Syscall! a7 = %ld\n", regs->a7);
+        tem++;
+        if(tem <=15){
+            printf("[Kernel Warning] Unhandled Syscall! a7 = %ld\n", regs->a7);
+        }
+        
     } else {
         printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
     }
     regs->sepc += 4;
 
     return;
+}
+
+void display_ecall_helper(struct pt_regs* regs) {
+    // Syscall 7: void display(unsigned int *bmp_image, unsigned int width, unsigned int height)
+    unsigned int* bmp_image = (unsigned int*)regs->a0;
+    unsigned int width = regs->a1;
+    unsigned int height = regs->a2;
+    
+    // 直接呼叫你以前寫好的硬體驅動函數
+    video_bmp_display(bmp_image, width, height);
+    
+    regs->sepc += 4;
+}
+
+extern uint64_t TIMERBASE_FREQ; 
+void usleep_ecall_helper(struct pt_regs* regs) {
+    // 8 usleep
+    unsigned int usec = regs->a0;
+    
+    // 計算需要等待的 ticks
+    unsigned long wait_ticks = (unsigned long)usec * (TIMERBASE_FREQ / 1000000);
+    unsigned long start_time, current_time;
+
+    asm volatile("csrr %0, time" : "=r"(start_time));
+
+    do {
+        // 【極度關鍵】：時間還沒到？那就把 CPU 讓給別人跑！
+        // 這樣 Shell 才有機會在影片播放的空檔去處理鍵盤輸入
+        schedule(); 
+        
+        asm volatile("csrr %0, time" : "=r"(current_time));
+    } while ((current_time - start_time) < wait_ticks);
+
+    regs->a0 = 0;
+    regs->sepc += 4;
 }
