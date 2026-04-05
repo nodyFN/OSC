@@ -88,7 +88,7 @@ dump-dtb: $(MY_RAMDISK) $(BOOTLOADER_ELF)
 	@echo " Dumping QEMU Device Tree Blob ..."
 	@echo "========================================"
 	@echo "  QEMU    Generating qemu.dtb"
-	@$(QEMU) -M virt -m 256M -nographic \
+	@$(QEMU) -M virt -m 2G -nographic \
              -initrd $(MY_RAMDISK) \
              -kernel $(BOOTLOADER_ELF) \
              -machine dumpdtb=qemu.dtb
@@ -101,7 +101,7 @@ build-all: $(KERNEL_BIN) $(BOOTLOADER_BIN)
 
 run-qemu: build-all
 	@echo "Running QEMU..."
-	$(QEMU) -M virt -m 256M \
+	$(QEMU) -M virt -m 2G \
 			-serial pty \
 			-bios default \
 			-initrd $(MY_RAMDISK) \

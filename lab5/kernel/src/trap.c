@@ -5,6 +5,7 @@
 #include "plic.h"
 #include "task.h"
 #include "ecall_helper.h"
+#include "thread.h"
 
 extern void (*ecall_helper_list[256])(struct pt_regs*);
 
@@ -26,6 +27,13 @@ void do_trap(struct pt_regs* regs){
     }else{
         if(regs->scause == 8){
             ecall_helper_list[regs->a7](regs);
+            return;
+        }else {
+            printf("\n[Kernel Panic] Unhandled Exception!\n");
+            printf("PID: %d, scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx\n", 
+                    get_current()->pid, regs->scause, regs->sepc, regs->stval);
+            printf("Killing the crashing thread...\n");
+            thread_exit();
             return;
         }
     }

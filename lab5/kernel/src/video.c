@@ -5,7 +5,13 @@
 extern int strncmp(const char* s1, const char* s2, int n);
 extern void* memcpy(void* dst, const void* src, int n);
 
-#define FB_BASE   0xfe000000
+// #define FB_BASE   0xfe000000
+#ifdef QEMU
+    #define FB_BASE 0xfe000000
+#else
+    #define FB_BASE 0x7f700000
+#endif
+
 #define FB_WIDTH  1920
 #define FB_HEIGHT 1080
 #define FB_BPP    4
@@ -134,6 +140,7 @@ static void flush_dcache(void* addr, unsigned long len) {
 }
 
 void video_init() {
+#ifdef QEMU
     struct RAMFBCfg cfg = {
         .addr = bswap64(FB_BASE),
         .fourcc = bswap32(XRGB8888),
@@ -144,6 +151,7 @@ void video_init() {
     };
     fw_cfg_write_entry(&cfg, fw_cfg_find_file("etc/ramfb"),
                        sizeof(struct RAMFBCfg));
+#endif
 }
 
 void video_bmp_display(unsigned int* bmp_image, int width, int height) {

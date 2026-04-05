@@ -209,12 +209,11 @@ void unknown_ecall_helper(struct pt_regs* regs){
 }
 
 void display_ecall_helper(struct pt_regs* regs) {
-    // Syscall 7: void display(unsigned int *bmp_image, unsigned int width, unsigned int height)
+    // 7: display
     unsigned int* bmp_image = (unsigned int*)regs->a0;
     unsigned int width = regs->a1;
     unsigned int height = regs->a2;
-    
-    // 直接呼叫你以前寫好的硬體驅動函數
+
     video_bmp_display(bmp_image, width, height);
     
     regs->sepc += 4;
@@ -225,19 +224,19 @@ void usleep_ecall_helper(struct pt_regs* regs) {
     // 8 usleep
     unsigned int usec = regs->a0;
     
-    // 計算需要等待的 ticks
     unsigned long wait_ticks = (unsigned long)usec * (TIMERBASE_FREQ / 1000000);
     unsigned long start_time, current_time;
 
     asm volatile("csrr %0, time" : "=r"(start_time));
 
+    asm volatile("csrsi sstatus, 2");
+
     do {
-        // 【極度關鍵】：時間還沒到？那就把 CPU 讓給別人跑！
-        // 這樣 Shell 才有機會在影片播放的空檔去處理鍵盤輸入
         schedule(); 
-        
         asm volatile("csrr %0, time" : "=r"(current_time));
     } while ((current_time - start_time) < wait_ticks);
+
+    asm volatile("csrci sstatus, 2");
 
     regs->a0 = 0;
     regs->sepc += 4;
