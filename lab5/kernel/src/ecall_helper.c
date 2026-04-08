@@ -47,7 +47,7 @@ void uart_read_ecall_helper(struct pt_regs* regs){
     long count = regs->a1;
     long ret_count = 0;
 
-    asm volatile("csrsi sstatus, 2");
+    // asm volatile("csrsi sstatus, 2");
 
     for(int i=0;i<count;i++){
         char c = uart_getc();
@@ -68,7 +68,7 @@ void uart_write_ecall_helper(struct pt_regs* regs){
     long count = regs->a1;
     long ret_count = 0;
 
-    asm volatile("csrsi sstatus, 2");
+    // asm volatile("csrsi sstatus, 2");
 
     for(int i=0;i<count;i++){
         uart_putc(buf[i]);
@@ -112,7 +112,6 @@ void fork_ecall_helper(struct pt_regs* regs){
     struct task_struct* child = kmalloc(sizeof(struct task_struct));
     memcpy((void*)child, (void*)parent, sizeof(*parent));
 
-    // 【新增】：剛出生的嬰兒不應該繼承父母的待辦事項與處理狀態
     child->sigpending = 0;
     child->is_handling_signal = 0;
     child->signal_stack_page = 0;
@@ -231,7 +230,7 @@ void usleep_ecall_helper(struct pt_regs* regs) {
 
     asm volatile("csrr %0, time" : "=r"(start_time));
 
-    asm volatile("csrsi sstatus, 2");
+    // asm volatile("csrsi sstatus, 2");
 
     do {
         schedule(); 

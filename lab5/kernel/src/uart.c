@@ -99,19 +99,22 @@ void uart_puts(const char *s) {
     }
 }
 
+extern void schedule();
 char uart_getc() {
-    while (rx_buf.head == rx_buf.tail) {
-        uint64_t sstatus;
-        asm volatile("csrr %0, sstatus" : "=r"(sstatus));
-        if (sstatus & (1 << 1)) {
-            asm volatile("wfi");
-        } 
-    }
+    while (1) {
+        if (rx_buf.head != rx_buf.tail) {
+            char c = rx_buf.data[rx_buf.tail];
+            rx_buf.tail = (rx_buf.tail + 1) % BUF_SIZE;
+            return c;
+        }
 
-    char c = rx_buf.data[rx_buf.tail];
-    rx_buf.tail = (rx_buf.tail + 1) % BUF_SIZE;
-    
-    return c;
+        if (*UART_LSR & 0x01) {
+            char c = *UART_RBR;
+            return c;
+        }
+
+        schedule();
+    }
 }
 
 void uart_hex(unsigned long value) {

@@ -2,6 +2,7 @@
 #include "stdio.h"
 #include "mm.h"
 #include "trap.h"
+#include "string.h"
 
 int nr_threads = 0;
 struct task_struct* run_queue = 0;
@@ -30,9 +31,13 @@ void schedule() {
     struct task_struct* next = prev->next;
 
     // printf("next thread status: %d\n", next->status);
-
+    struct task_struct* head = next;
     while(next->status == TERMINATED){
         next = next->next;
+        if (next == head) {
+            next = run_queue; 
+            break;
+        }
     }
 
     if(prev->status != TERMINATED){
@@ -49,7 +54,7 @@ void schedule() {
 
 void thread_idle() {
     while (1) {
-        asm volatile("csrsi sstatus, 2"); // 2 對應到 SIE (bit 1)
+        // asm volatile("csrsi sstatus, 2");
         // for (int i = 0; i < 100000000; i++);
         // printf("Idling...\n");
         kill_zombies();
@@ -76,6 +81,7 @@ void thread_foo() {
 
 struct task_struct* kthread_create(void (*threadfn)()) {
     struct task_struct* task = kmalloc(sizeof(struct task_struct));
+    memset(task, 0, sizeof(struct task_struct));
     task->pid = nr_threads++;
     struct page* kpage = alloc_pages(3);
     task->stack = page_to_phys(kpage);
@@ -91,6 +97,10 @@ void thread_exit(){
     struct task_struct* target = get_current();
     target->status = TERMINATED;
     schedule();
+
+    // while (1) {
+    //     asm volatile("nop");
+    // }
 }
 
 void kill_zombies(){
@@ -99,7 +109,10 @@ void kill_zombies(){
     while(current != run_queue){
         if(current->status == TERMINATED){
             prev->next = current->next;
-            free_pages(phys_to_page(current->stack), current->stack_page_order);
+            free_pages(phys_to_page(current->stack), current->stack_page_order);            
+            if (current->user_stack != 0) {
+                free_pages(phys_to_page(current->user_stack), current->user_stack_page_order);
+            }
             kfree(current);
             current = prev->next;
         }else{
@@ -113,6 +126,7 @@ extern void ret_from_exception();
 
 struct task_struct* user_process_create(void (*user_func)()){
     struct task_struct* task = kmalloc(sizeof(struct task_struct));
+    memset(task, 0, sizeof(struct task_struct));
     task->pid = nr_threads++;
     task->status = READY;
 
