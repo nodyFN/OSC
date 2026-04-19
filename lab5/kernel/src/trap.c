@@ -4,10 +4,10 @@
 #include "timer.h"
 #include "plic.h"
 #include "task.h"
-#include "ecall_helper.h"
 #include "thread.h"
-#include "mm.h"
+#include "ecall_helper.h"
 #include "string.h"
+#include "mm.h"
 
 extern void (*ecall_helper_list[256])(struct pt_regs*);
 extern char sigreturn_stub[];
@@ -24,8 +24,7 @@ void check_signals(struct pt_regs *regs) {
                 
                 current->signal_saved_regs = *regs;
                 
-                struct page* sig_page = alloc_pages(0); 
-                current->signal_stack_page = page_to_phys(sig_page);
+                current->signal_stack_page = (uint64_t)kmalloc(4096);
 
                 uint32_t *trampoline = (uint32_t *)(current->signal_stack_page + 4096 - 16);
                 size_t stub_size = sigreturn_stub_end - sigreturn_stub;
@@ -61,7 +60,6 @@ void do_trap(struct pt_regs* regs){
     }else{
         if(regs->scause == 8){
             ecall_helper_list[regs->a7](regs);
-            // return;
         }else {
             printf("\n[Kernel Panic] Unhandled Exception!\n");
             printf("PID: %d, scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx\n", 

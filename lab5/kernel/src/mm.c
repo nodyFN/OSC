@@ -19,6 +19,9 @@ static uint64_t heap_ptr;
 
 int print_log = 0;
 
+#define POOL_COUNT 8 
+struct list_head pool_list[POOL_COUNT];
+
 struct page *phys_to_page(uint64_t phys) {
     if (phys < phys_mem_start || phys >= phys_mem_end) return NULL;
     uint64_t pfn = (phys - phys_mem_start) >> PAGE_SHIFT;
@@ -56,6 +59,9 @@ struct page *alloc_pages(int order) {
 
             if(print_log) printf("[Buddy] Split: block added to Order %d\n", i);
         }
+
+        if(print_log) printf("[Page] Allocate Page at %lx, order %d\n", page_to_phys(page), order);
+        
         return page;
     }
     return NULL; 
@@ -63,6 +69,7 @@ struct page *alloc_pages(int order) {
 
 void free_pages(struct page *page, int order) {
     if (!page) return;
+    if(print_log) printf("[Page] Free Page at %lx, order %d\n", page_to_phys(page), order);
     page->allocated = 0;
     while (order < MAX_ORDER) {
         uint64_t buddy_pfn = page->pfn ^ (1 << order);
@@ -109,9 +116,48 @@ void mm_init(void *dtb) {
     phys_mem_end = ram_base + ram_size;
     total_pages = ram_size / PAGE_SIZE;
 
-    heap_ptr = (uint64_t)&_stack_top;
+    // uint64_t kernel_start = (uint64_t)_start;
+    uint64_t kernel_end   = (uint64_t)_stack_top;
+
+    uint64_t dtb_start = (uint64_t)dtb;
+    uint32_t dtb_totalsize = fdt_total_size(dtb);
+    uint64_t dtb_end = dtb_start + dtb_totalsize;
+
+    uint64_t initrd_start = 0, initrd_end = 0;
+    int has_initrd = (get_initrd_info(dtb, &initrd_start, &initrd_end) != -1);
 
     uint64_t mem_map_size = total_pages * sizeof(struct page);
+
+    uint64_t safe_heap = kernel_end;
+    safe_heap = (safe_heap + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+
+    while (1) {
+        int collision = 0;
+        uint64_t safe_heap_end = safe_heap + mem_map_size;
+
+        if (has_initrd && safe_heap < initrd_end && safe_heap_end > initrd_start) {
+            safe_heap = initrd_end;
+            safe_heap = (safe_heap + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            collision = 1;
+        }
+
+        if (safe_heap < dtb_end && safe_heap_end > dtb_start) {
+            safe_heap = dtb_end;
+            safe_heap = (safe_heap + PAGE_SIZE - 1) & ~(PAGE_SIZE - 1);
+            collision = 1;
+        }
+
+        if (!collision) {
+            break;
+        }
+    }
+
+    if (safe_heap + mem_map_size > phys_mem_end) {
+        printf("[Error] Out of memory when allocating mem_map!\n");
+        while(1); 
+    }
+    heap_ptr = safe_heap;
+
     mem_map = (struct page *)startup_alloc(mem_map_size);
 
     for (int i = 0; i <= MAX_ORDER; i++) {
@@ -121,42 +167,26 @@ void mm_init(void *dtb) {
     for (uint64_t i = 0; i < total_pages; i++) {
         INIT_LIST_HEAD(&mem_map[i].list);
         mem_map[i].pfn = i;
-        mem_map[i].allocated = 1; 
+        mem_map[i].allocated = 1;
         mem_map[i].order = 0;
     }
     
-    // kernel image region
-    uint64_t kernel_start = (uint64_t)_start;
-    uint64_t kernel_end   = (uint64_t)_stack_top;
-    memory_reserve(kernel_start, kernel_end);
-    printf("[Reserve] Kernel Image: 0x%lx - 0x%lx\n", kernel_start, kernel_end);
+    memory_reserve(phys_mem_start, kernel_end); 
+    printf("[Reserve] OpenSBI & Kernel Image: %lx - %lx\n", phys_mem_start, kernel_end);
 
-    // OpenSBI region
-    memory_reserve(phys_mem_start, kernel_start); 
-    printf("[Reserve] OpenSBI Region: 0x%lx - 0x%lx\n", phys_mem_start, kernel_start);
+    memory_reserve(dtb_start, dtb_end); 
+    printf("[Reserve] DTB region: %lx - %lx\n", dtb_start, dtb_end);
 
-    // from the start of the ram to the end of the heap, including kernel image region and sbi region
-    memory_reserve(phys_mem_start, heap_ptr); 
-    printf("[Reserve] RAM start to Heap end: 0x%lx - 0x%lx\n", phys_mem_start, heap_ptr);
+    if (has_initrd) {
+        memory_reserve(initrd_start, initrd_end);
+        printf("[Reserve] Initrd region: %lx - %lx\n", initrd_start, initrd_end);
+    }
+
+    memory_reserve(safe_heap, heap_ptr); 
+    printf("[Reserve] Startup Allocator (mem_map): %lx - %lx\n", safe_heap, heap_ptr);
 
     if (fdt_reserve_memory(dtb) == -1) {
        printf("[Warning] No /reserved-memory is found in DTB\n");
-    }
-    
-    uint64_t initrd_start, initrd_end;
-    if (get_initrd_info(dtb, &initrd_start, &initrd_end) != -1) {
-        memory_reserve(initrd_start, initrd_end);
-        printf("[Reserve] initrd region: 0x%lx - 0x%lx\n", initrd_start, initrd_end);
-    }
-    
-    uint64_t dtb_start = (uint64_t)dtb;
-    uint32_t dtb_totalsize = fdt_total_size(dtb);
-    memory_reserve(dtb_start, dtb_start + dtb_totalsize); 
-    printf("[Reserve] dtb region: 0x%lx - 0x%lx\n", dtb_start, dtb_start + dtb_totalsize);
-
-    int free_count = 0;
-    for (uint64_t i = 0; i < total_pages; i++) {
-        if (mem_map[i].allocated == 1) free_count++;
     }
 
     for (uint64_t i = 0; i < total_pages; i++) {
@@ -165,12 +195,12 @@ void mm_init(void *dtb) {
         }
     }
     
-    // dump_buddy_info();
-    // print_log = 1;
-}
+    for (int i = 0; i < POOL_COUNT; i++) {
+        INIT_LIST_HEAD(&pool_list[i]);
+    }
 
-#define POOL_COUNT 8 
-struct page *page_cache[POOL_COUNT]; 
+    print_log = 0;
+}
 
 int get_pool_index(size_t size) {
     if (size <= 16) return 0;
@@ -206,46 +236,42 @@ void init_pool_page(struct page *p, int chunk_size) {
 void *kmalloc(size_t size) {
     if (size == 0) return NULL;
     
-    uint64_t irq_flags;
-    local_irq_save(irq_flags);
-    
-    void *ret_ptr = NULL;
-    
     int idx = get_pool_index(size);
     if (idx < 0) {
         int order = 0;
         while ((PAGE_SIZE << order) < size) order++;
         struct page *p = alloc_pages(order);
-        if (p) {
-            p->pool_size = 0;
-            ret_ptr = (void *)page_to_phys(p);
-        }
-    } else {
-        int chunk_size = get_pool_size(idx);
-        
-        if (page_cache[idx] == NULL) {
-            struct page *new_page = alloc_pages(0);
-            if (new_page) {
-                init_pool_page(new_page, chunk_size);
-                page_cache[idx] = new_page;
-            }
-        }
-        if (page_cache[idx] != NULL) {
-            struct page *p = page_cache[idx];
-            ret_ptr = p->freelist;
-            
-            if (ret_ptr) {
-                p->freelist = (void *)(*(uint64_t *)ret_ptr);
-                p->free_count--;
-                if (p->free_count == 0) {
-                    page_cache[idx] = NULL; 
-                }
-            }
-        }
+        if (!p) return NULL;
+        p->pool_size = 0;
+        return (void *)page_to_phys(p);
     }
 
-    local_irq_restore(irq_flags);
-    return ret_ptr;
+    int chunk_size = get_pool_size(idx);
+    
+    if (list_empty(&pool_list[idx])) {
+        struct page *new_page = alloc_pages(0);
+        if (!new_page) return NULL;
+        
+        init_pool_page(new_page, chunk_size);
+        list_add(&new_page->list, &pool_list[idx]);
+    }
+
+    struct page *p = list_entry(pool_list[idx].next, struct page, list);
+    void *ret = p->freelist;
+    
+    if (ret) {
+        p->freelist = (void *)(*(uint64_t *)ret);
+        p->free_count--;
+    } else {
+        return NULL;
+    }
+
+    if (p->free_count == 0) {
+        list_del(&p->list); 
+    }
+    if(print_log) printf("[Chunk] Allocate %d bytes at %lx\n", chunk_size, (uint64_t)ret);
+
+    return ret;
 }
 
 void kfree(void *ptr) {
@@ -254,32 +280,30 @@ void kfree(void *ptr) {
     struct page *p = phys_to_page((uint64_t)ptr);
     if (!p) return;
 
-    uint64_t irq_flags;
-    local_irq_save(irq_flags); 
-
     if (p->pool_size == 0) {
         free_pages(p, p->order);
-    } else {
-        *(uint64_t *)ptr = (uint64_t)p->freelist;
-        p->freelist = ptr;
-        p->free_count++;
-
-        if (p->free_count == (PAGE_SIZE / p->pool_size)) {
-            int idx = get_pool_index(p->pool_size);
-            if (page_cache[idx] == p) {
-                page_cache[idx] = NULL;
-            }
-            p->pool_size = 0;
-            free_pages(p, 0);
-        } else {
-            int idx = get_pool_index(p->pool_size);
-            if (page_cache[idx] == NULL) {
-                page_cache[idx] = p;
-            }
-        }
+        return;
     }
 
-    local_irq_restore(irq_flags);
+    if(print_log) printf("[Chunk] Free chunk at %lx (pool size: %d)\n", (uint64_t)ptr, p->pool_size);
+
+    *(uint64_t *)ptr = (uint64_t)p->freelist;
+    p->freelist = ptr;
+    p->free_count++;
+
+    int max_count = PAGE_SIZE / p->pool_size;
+    int idx = get_pool_index(p->pool_size);
+
+    if (p->free_count == 1) {
+        list_add(&p->list, &pool_list[idx]);
+    }
+
+    if (p->free_count == max_count) {
+        list_del(&p->list);
+        
+        p->pool_size = 0;
+        free_pages(p, 0);
+    }
 }
 
 void mm_test() {
@@ -355,4 +379,55 @@ void mm_test() {
     kfree(ptr6);
     
     printf("=== Tests Complete ===\n");
+}
+
+void test_alloc_1() {
+    uart_puts("Testing memory allocation...\n");
+    char *ptr1 = (char *)kmalloc(4000);
+    char *ptr2 = (char *)kmalloc(8000);
+    char *ptr3 = (char *)kmalloc(4000);
+    char *ptr4 = (char *)kmalloc(4000);
+
+    kfree(ptr1);
+    kfree(ptr2);
+    kfree(ptr3);
+    kfree(ptr4);
+
+    /* Test kmalloc */
+    uart_puts("Testing dynamic allocator...\n");
+    char *kmem_ptr1 = (char *)kmalloc(16);
+    char *kmem_ptr2 = (char *)kmalloc(32);
+    char *kmem_ptr3 = (char *)kmalloc(64);
+    char *kmem_ptr4 = (char *)kmalloc(128);
+
+    kfree(kmem_ptr1);
+    kfree(kmem_ptr2);
+    kfree(kmem_ptr3);
+    kfree(kmem_ptr4);
+
+    char *kmem_ptr5 = (char *)kmalloc(16);
+    char *kmem_ptr6 = (char *)kmalloc(32);
+
+    kfree(kmem_ptr5);
+    kfree(kmem_ptr6);
+
+    // Test allocate new page if the cache is not enough
+    void *kmem_ptr[102];
+    for (int i=0; i<100; i++) {
+        kmem_ptr[i] = (char *)kmalloc(128);
+    }
+    for (int i=0; i<100; i++) {
+        kfree(kmem_ptr[i]);
+    }
+
+    #define MAX_ALLOC_SIZE (1ULL << 31)
+    // Test exceeding the maximum size
+    char *kmem_ptr7 = (char *)kmalloc(MAX_ALLOC_SIZE + 1);
+    if (kmem_ptr7 == NULL) {
+        uart_puts("Allocation failed as expected for size > MAX_ALLOC_SIZE\n");
+    }
+    else {
+        uart_puts("Unexpected allocation success for size > MAX_ALLOC_SIZE\n");
+        kfree(kmem_ptr7);
+    }
 }

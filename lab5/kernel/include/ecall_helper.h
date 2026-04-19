@@ -8,6 +8,7 @@ void uart_read_ecall_helper(struct pt_regs* regs);
 void uart_write_ecall_helper(struct pt_regs* regs);
 void exec_ecall_helper(struct pt_regs* regs);
 void fork_ecall_helper(struct pt_regs* regs);
+void waitpid_ecall_helper(struct pt_regs* regs);
 void exit_ecall_helper(struct pt_regs* regs);
 void stop_ecall_helper(struct pt_regs* regs);
 void display_ecall_helper(struct pt_regs* regs);

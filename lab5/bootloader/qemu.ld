@@ -18,13 +18,13 @@ SECTIONS
 
     .data : {
         . = ALIGN(8);
-        *(.data .data.*)
+        *(.data .data.* .sdata .sdata.* .got .got.*)
     }
 
     .bss : {
         . = ALIGN(16);
         __bss_start = .;
-        *(.bss .bss.*)
+        *(.bss .bss.* .sbss .sbss.*)
         *(COMMON)
         __bss_end = .;
     }

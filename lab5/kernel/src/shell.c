@@ -8,6 +8,7 @@
 #include "utils.h"
 #include "stdio.h"
 #include "timer.h"
+#include "mm.h"
 
 extern struct KernelInfo kernel_info;
 
@@ -125,12 +126,23 @@ void processCommand(shell_t* shell) {
     }else if(strncmp(shell->command, "run ", 4) == 0){
         char* filename = shell->command + 4;
         initrd_exec((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, filename);
-    }else if(strcmp(shell->command, "timertest") == 0){
-        timer_event_test();
+    }else if(strncmp(shell->command, "setTimeout ", 11) == 0){
+        int second = 0;
+        char* c = shell->command + 11;
+        while(*c != ' '){
+            second = second * 10 + (*c - '0');
+            c++;
+        }
+        c++;
+        char* message_buffer = kmalloc(256);
+        memset(message_buffer, 0, 256);
+        memcpy(message_buffer, c, 256 - (c - shell->command));
+        add_timer(one_shot_alert_callback, (void*)message_buffer, second);
     }else{
         printf("Unknown command: %s\n", shell->command);
         printf("Use help to get commands.\n");
     }
+
 
 }
 

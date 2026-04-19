@@ -3,6 +3,6 @@
     .global sigreturn_stub_end
 
 sigreturn_stub:
-    li a7, 10                 # Syscall 10 (sigreturn)
+    li a7, 11                 # Syscall 11 (sigreturn)
     ecall
 sigreturn_stub_end:

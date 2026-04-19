@@ -3,6 +3,7 @@
 #include "mm.h"
 #include "trap.h"
 #include "string.h"
+#include "utils.h"
 
 int nr_threads = 0;
 struct task_struct* run_queue = 0;
@@ -24,15 +25,16 @@ struct task_struct* get_current() {
 }
 
 extern void switch_to(struct task_struct* prev, struct task_struct* next);
-
 void schedule() {
+    uint64_t irq_flags;
+    local_irq_save(irq_flags);
+
     struct task_struct* prev = get_current();
     
     struct task_struct* next = prev->next;
 
-    // printf("next thread status: %d\n", next->status);
     struct task_struct* head = next;
-    while(next->status == TERMINATED){
+    while(next->status == TERMINATED || next->status == WAITING || next->status == ABORTED){
         next = next->next;
         if (next == head) {
             next = run_queue; 
@@ -40,21 +42,23 @@ void schedule() {
         }
     }
 
-    if(prev->status != TERMINATED){
+    if(prev->status == RUNNING){
         prev->status = READY;
     }
     next->status = RUNNING;
 
-    // printf("Running thread pid: %d\n", next->pid);
-
     if (prev != next) {
+        // printf("from pid=%d to pid=%d\n", prev->pid, next->pid);
         switch_to(prev, next);
     }
+
+    local_irq_restore(irq_flags);
 }
 
 void thread_idle() {
     while (1) {
-        // asm volatile("csrsi sstatus, 2");
+        asm volatile("csrsi sstatus, 2");
+        // asm volatile("wfi");
         // for (int i = 0; i < 100000000; i++);
         // printf("Idling...\n");
         kill_zombies();
@@ -64,18 +68,10 @@ void thread_idle() {
 
 void thread_foo() {
     for (int i = 0; i < 5; i++) {
-        // uart_puts("Process ID: ");
         printf("Process ID: %d, %d\n", get_current()->pid, i);
-        // uart_hex(get_current()->pid);
-        // uart_puts(" ");
-        // uart_hex(i);
-        // uart_puts("\n");
-        for (int i = 0; i < 100000000; i++)
-            ;
+        for (int i = 0; i < 100000000; i++);
         schedule();
     }
-    // while (1)
-    //     ;
     thread_exit();
 }
 
@@ -83,12 +79,13 @@ struct task_struct* kthread_create(void (*threadfn)()) {
     struct task_struct* task = kmalloc(sizeof(struct task_struct));
     memset(task, 0, sizeof(struct task_struct));
     task->pid = nr_threads++;
-    struct page* kpage = alloc_pages(3);
-    task->stack = page_to_phys(kpage);
-    task->stack_page_order = 3;
+    task->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
     task->thread.ra = (unsigned long)threadfn;
-    #define STACK_SIZE 0x8000
-    task->thread.sp = task->stack + STACK_SIZE;
+    task->thread.sp = task->kernel_stack + KERNEL_STACK_SIZE;
+
+    task->parent = NULL;
+    task->waiting_pid = -1;
+
     enqueue(&run_queue, task);
     return task;
 }
@@ -96,22 +93,26 @@ struct task_struct* kthread_create(void (*threadfn)()) {
 void thread_exit(){
     struct task_struct* target = get_current();
     target->status = TERMINATED;
+    if(target->parent != NULL && target->parent->status == WAITING && target->parent->waiting_pid == target->pid){
+        target->parent->status = READY;
+        target->parent->waiting_pid = -1;
+    }
     schedule();
-
-    // while (1) {
-    //     asm volatile("nop");
-    // }
 }
 
 void kill_zombies(){
+    uint64_t irq_flags;
+    local_irq_save(irq_flags);
+
     struct task_struct *current = run_queue->next;
     struct task_struct *prev = run_queue;
     while(current != run_queue){
         if(current->status == TERMINATED){
+            current->status = ABORTED; // prevent from becoming a dangling process
             prev->next = current->next;
-            free_pages(phys_to_page(current->stack), current->stack_page_order);            
+            kfree((void*)current->kernel_stack);           
             if (current->user_stack != 0) {
-                free_pages(phys_to_page(current->user_stack), current->user_stack_page_order);
+                kfree((void*)current->user_stack);
             }
             kfree(current);
             current = prev->next;
@@ -120,6 +121,8 @@ void kill_zombies(){
             current = current->next;
         }
     }
+
+    local_irq_restore(irq_flags);
 }
 
 extern void ret_from_exception();
@@ -131,14 +134,12 @@ struct task_struct* user_process_create(void (*user_func)()){
     task->status = READY;
 
     task->stack_page_order = 3;
-    struct page* kpage = alloc_pages(task->stack_page_order);
-    task->stack = page_to_phys(kpage);
-    task->kernel_sp = task->stack + 0x8000; // 32KB
+    task->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
+    task->kernel_sp = task->kernel_stack + KERNEL_STACK_SIZE;
 
     task->user_stack_page_order = 0;
-    struct page* upage = alloc_pages(task->user_stack_page_order);
-    task->user_stack = page_to_phys(upage);
-    task->user_sp = task->user_stack + 0x1000;
+    task->user_stack = (unsigned long)kmalloc(USER_STACK_SIZE);
+    task->user_sp = task->user_stack + USER_STACK_SIZE;
 
     struct pt_regs *regs = (struct pt_regs *)(task->kernel_sp - sizeof(struct pt_regs));
 
@@ -150,9 +151,13 @@ struct task_struct* user_process_create(void (*user_func)()){
     regs->sepc = (uint64_t)user_func;
     regs->sp = task->user_sp;
     regs->sstatus |= (1 << 5);
+    regs->sstatus |= (1 << 13);
 
     task->thread.ra = (unsigned long)ret_from_exception;
     task->thread.sp = (unsigned long)regs;
+
+    task->parent = run_queue;
+    task->waiting_pid = -1;
 
     enqueue(&run_queue, task);
     return task;

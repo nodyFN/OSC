@@ -13,18 +13,29 @@ extern struct KernelInfo kernel_info;
 
 struct list_head timer_list;
 
-void print_running_time(void *arg){
-    uint64_t* second = (uint64_t*) arg;
+void enable_timer_interrupt(){
+    __asm__ volatile(
+        "csrs sie, %0"
+        :
+        : "r"(1 << 5)
+    );
+}
 
-    // uint64_t current_time = get_time();
-    // uint64_t seconds_after_boot = current_time / TIMERBASE_FREQ;
-    // printf("Tick! %d seconds after booting.\n", seconds_after_boot);
+int get_time_after_boot(){
+    uint64_t current_time = get_time();
+    uint64_t seconds_after_boot = current_time / TIMERBASE_FREQ;
+    return seconds_after_boot;
+}
 
-    if(second != NULL){
-        add_timer(print_running_time, second, (*second) * TIMERBASE_FREQ);
-    } else {
-        if (second) kfree(second);
-    }
+void periodic_tick_handler(){
+    // printf("Tick! %d seconds after booting.\n", get_time_after_boot());
+    add_timer(periodic_tick_handler, NULL, PERIODIC_TIME_SLOT_SECOND);
+    schedule();
+}
+
+void one_shot_alert_callback(void* arg){
+    printf("%s\n", (char*)arg);
+    kfree(arg);
 }
 
 void set_next_timer(int second) {
@@ -49,26 +60,19 @@ void timer_init(){
 
     INIT_LIST_HEAD(&timer_list);
 
-    // 【關鍵修改】設定第一次的心跳，時間為 1/32 秒後
-    uint64_t current_time = get_time();
-    set_next_timer_absolute(current_time + (TIMERBASE_FREQ / 32));
-
-    // set_next_timer(0);
-    // uint64_t* second = (uint64_t*)kmalloc(sizeof(uint64_t));
-    // *second = 2;
-    // add_timer(print_running_time, second, 2 * TIMERBASE_FREQ);
-    __asm__ volatile("csrs sie, %0" : : "r"(1 << 5));
+    add_timer(periodic_tick_handler, NULL, PERIODIC_TIME_SLOT_SECOND);
+    enable_timer_interrupt();
 }
 
 void set_next_timer_absolute(uint64_t absolute_tick){
     sbi_set_timer(absolute_tick);
 }
 
-void add_timer(timer_callback_t callback, void *arg, uint64_t timeout_ticks) {
+void add_timer(timer_callback_t callback, void *arg, double second) {
     struct timer_event *new_timer = (struct timer_event *)kmalloc(sizeof(struct timer_event));
     
     uint64_t current_time = get_time();
-
+    uint64_t timeout_ticks = second * TIMERBASE_FREQ;
     new_timer->expire_time = current_time + timeout_ticks;
     new_timer->callback = callback;
     new_timer->arg = arg;
@@ -93,9 +97,9 @@ void add_timer(timer_callback_t callback, void *arg, uint64_t timeout_ticks) {
         list_add_tail(&new_timer->list, &timer_list);
     }
 
-    // if (timer_list.next == &new_timer->list) {
-    //     set_next_timer_absolute(new_timer->expire_time); 
-    // }
+    if (timer_list.next == &new_timer->list) {
+        set_next_timer_absolute(new_timer->expire_time); 
+    }
 
     local_irq_restore(irq_flags);
 }
@@ -119,22 +123,10 @@ void timer_handler(){
         }
     }
 
-    // if (!list_empty(&timer_list)) {
-    //     struct timer_event *next_timer = list_entry(timer_list.next, struct timer_event, list);
-    //     set_next_timer_absolute(next_timer->expire_time);
-    // } else {
-    //     set_next_timer_absolute(-1ULL);
-    // }
-
-    // 2. 【關鍵修改】不管串列狀態，強制設定下一次中斷為 1/32 秒後
-    set_next_timer_absolute(current_time + (TIMERBASE_FREQ / 32));
-
-    // 3. 【強制搶佔 (Preemption)】：時間到了，把 CPU 交出來換下一個人跑！
-    schedule();
-}
-
-void timer_event_test(){
-    add_timer(print_running_time, NULL, 2 * TIMERBASE_FREQ);
-    add_timer(print_running_time, NULL, 3 * TIMERBASE_FREQ);
-    add_timer(print_running_time, NULL, 5 * TIMERBASE_FREQ);
+    if (!list_empty(&timer_list)) {
+        struct timer_event *next_timer = list_entry(timer_list.next, struct timer_event, list);
+        set_next_timer_absolute(next_timer->expire_time);
+    } else {
+        set_next_timer_absolute(-1ULL);
+    }
 }

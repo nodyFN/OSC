@@ -7,6 +7,23 @@
 
 #include <stddef.h>
 
+void remove_at(const char str[256], char nstr[256]){
+    int idx = 0;
+    int len = strlen(str);
+    int b = 1;
+    for(int i=0;i<len;i++){
+        if(str[i] == '@'){
+            b = 0;
+        }else if(str[i] == '/'){
+            b = 1;
+        }
+        if(b){
+            nstr[idx] = str[i];
+            idx++;
+        }
+    }
+    nstr[idx] = '\0';
+}
 
 void fdt_prop_value_printer(const void* prop_start, const int prop_len){
     char* prop_value = (char *)prop_start;
@@ -199,10 +216,15 @@ void list_all_nodes(const void *fdt){
 }
 
 int fdt_path_offset(const void *fdt, const char *path){
+    char r_path[256];
+    remove_at(path, r_path);
+
     char current_path[256];
+    char r_current_path[256];
     for(int _=0; _<256; _++){
         current_path[_] = '\0';
     }
+    remove_at(current_path, r_current_path);
     int path_index = 0;
     
     struct fdt_header *header = (struct fdt_header *)fdt;
@@ -210,7 +232,7 @@ int fdt_path_offset(const void *fdt, const char *path){
     uint32_t* struct_base = (uint32_t *)((uint64_t)fdt + off_dt_struct);
 
     uint32_t* current = struct_base;
-    while(toLittleEndian(*current) != FDT_END && strcmp(path, current_path) != 0){
+    while(toLittleEndian(*current) != FDT_END && strcmp(r_path, r_current_path) != 0){
         if(toLittleEndian(*current) == FDT_BEGIN_NODE){
             uint32_t* token_addr = current;
 
@@ -227,16 +249,18 @@ int fdt_path_offset(const void *fdt, const char *path){
                 name_ptr++;
                 name_len++;
             }
+            remove_at(current_path, r_current_path);
 
             // if (strcmp(current_path, path) == 0) {
             //     return (uint64_t)token_addr - (uint64_t)fdt;
             // }
-            if (strncmp(current_path, path, strlen(path)) == 0) {
-                // printf("Want path: %s, Got path: %s\n", path, current_path);
+            if (strcmp(r_current_path, r_path) == 0) {
+                // printf("Got path: %s\n", r_path);
                 return (uint64_t)token_addr - (uint64_t)fdt;
             }else{
-                // printf("Want path: %s, now path: %s\n", path, current_path);
+                // printf("Current: %s, Want: %s\n", r_current_path, r_path);
             }
+
 
 
 
@@ -308,13 +332,7 @@ const void *fdt_getprop(const void *fdt, int nodeoffset, const char *name, int *
 }
 
 int fdt_get_memory_info(void *dtb, uint64_t *base, uint64_t *size) {
-    int mem_offset = -1;
-    // #ifdef QEMU
-    //     mem_offset = fdt_path_offset(dtb, "/memory@80000000");
-    // #else
-    //     mem_offset = fdt_path_offset(dtb, "/memory@0");
-    // #endif
-    mem_offset = fdt_path_offset(dtb, "/memory");
+    int mem_offset = fdt_path_offset(dtb, "/memory");
     if (mem_offset < 0) {
         printf("[Failed] Path /memory@... not found in FDT.\n");
         return -1;

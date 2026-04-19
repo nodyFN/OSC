@@ -48,9 +48,11 @@ void get_uart_irq(){
 }
 
 void enable_external_interrupt() {
-    asm volatile(
-        "li t0, (1 << 9);"
-        "csrs sie, t0;");
+    __asm__ volatile(
+        "csrs sie, %0"
+        :
+        : "r"(1 << 9)
+    );
 }
 
 void plic_init(){

@@ -25,13 +25,14 @@ void ecall_helper_commit(){
     ecall_helper_list[2] = uart_write_ecall_helper;
     ecall_helper_list[3] = exec_ecall_helper;
     ecall_helper_list[4] = fork_ecall_helper;
-    ecall_helper_list[5] = exit_ecall_helper;
-    ecall_helper_list[6] = stop_ecall_helper;
-    ecall_helper_list[7] = display_ecall_helper;
-    ecall_helper_list[8] = usleep_ecall_helper;
-    ecall_helper_list[9] = signal_ecall_helper;
-    ecall_helper_list[10] = sigreturn_ecall_helper;
-    ecall_helper_list[11] = kill_ecall_helper;
+    ecall_helper_list[5] = waitpid_ecall_helper;
+    ecall_helper_list[6] = exit_ecall_helper;
+    ecall_helper_list[7] = stop_ecall_helper;
+    ecall_helper_list[8] = display_ecall_helper;
+    ecall_helper_list[9] = usleep_ecall_helper;
+    ecall_helper_list[10] = signal_ecall_helper;
+    ecall_helper_list[11] = sigreturn_ecall_helper;
+    ecall_helper_list[12] = kill_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -47,15 +48,11 @@ void uart_read_ecall_helper(struct pt_regs* regs){
     long count = regs->a1;
     long ret_count = 0;
 
-    // asm volatile("csrsi sstatus, 2");
-
     for(int i=0;i<count;i++){
         char c = uart_getc();
         *(buf + i) = c;
         ret_count++;
     }
-
-    asm volatile("csrci sstatus, 2");
 
     regs->a0 = ret_count;
     regs->sepc += 4;
@@ -68,14 +65,10 @@ void uart_write_ecall_helper(struct pt_regs* regs){
     long count = regs->a1;
     long ret_count = 0;
 
-    // asm volatile("csrsi sstatus, 2");
-
     for(int i=0;i<count;i++){
         uart_putc(buf[i]);
         ret_count++;
     }
-
-    asm volatile("csrci sstatus, 2");
 
     regs->a0 = ret_count;
     regs->sepc += 4;
@@ -102,7 +95,7 @@ void exec_ecall_helper(struct pt_regs* regs){
 
     struct task_struct *current = get_current();
     regs->sepc = (uint64_t)program_entry;
-    regs->sp = current->user_stack + (1 << current->user_stack_page_order) * 4096; 
+    regs->sp = current->user_stack + USER_STACK_SIZE;
     return;
 }
 
@@ -119,14 +112,12 @@ void fork_ecall_helper(struct pt_regs* regs){
     child->pid = nr_threads++; 
     child->status = READY;
 
-    struct page* kpage = alloc_pages(child->stack_page_order);
-    child->stack = page_to_phys(kpage);
-    struct page* upage = alloc_pages(child->user_stack_page_order);
-    child->user_stack = page_to_phys(upage);
-    memcpy((void*)child->stack, (void*)parent->stack, (1 << child->stack_page_order) * 4096);
-    memcpy((void*)child->user_stack, (void*)parent->user_stack, (1 << child->user_stack_page_order) * 4096);
-    child->kernel_sp = child->stack + 0x8000;
-    child->user_sp = child->user_stack + 0x1000;
+    child->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
+    child->user_stack = (unsigned long)kmalloc(USER_STACK_SIZE);
+    memcpy((void*)child->kernel_stack, (void*)parent->kernel_stack, KERNEL_STACK_SIZE);
+    memcpy((void*)child->user_stack, (void*)parent->user_stack, USER_STACK_SIZE);
+    child->kernel_sp = child->kernel_stack + KERNEL_STACK_SIZE;
+    child->user_sp = child->user_stack + USER_STACK_SIZE;
 
     struct pt_regs *child_regs = (struct pt_regs *)(child->kernel_sp - sizeof(struct pt_regs));
 
@@ -137,12 +128,15 @@ void fork_ecall_helper(struct pt_regs* regs){
 
     unsigned long offset = child->user_stack - parent->user_stack;
     child_regs->sp = child_regs->sp + offset;
-    if (child_regs->s0 >= parent->user_stack && child_regs->s0 < parent->user_stack + 4096) {
+    if (child_regs->s0 >= parent->user_stack && child_regs->s0 < parent->user_stack + USER_STACK_SIZE) {
         child_regs->s0 = child_regs->s0 + offset;
     }
 
     child->thread.ra = (unsigned long)ret_from_exception;
     child->thread.sp = (unsigned long)child_regs;
+
+    child->parent = parent;
+    child->waiting_pid = -1;
 
     enqueue(&run_queue, child);
 
@@ -150,15 +144,55 @@ void fork_ecall_helper(struct pt_regs* regs){
     return;
 }
 
+void waitpid_ecall_helper(struct pt_regs* regs){
+    // 5 waitpid
+    int waiting_pid = regs->a0;
+    struct task_struct* current_process = get_current();
+
+    // printf("PID %d is waits for PID %d\n", current_process->pid, regs->a0);
+
+    int found = 0;
+    int is_terminated = 0;
+
+    if (run_queue != 0) {
+        struct task_struct* task = run_queue;
+        do {
+            if (task->pid == waiting_pid) {
+                found = 1;
+                if (task->status == TERMINATED || task->status == ABORTED) {
+                    is_terminated = 1;
+                }
+                break;
+            }
+            task = task->next;
+        } while(task != run_queue);
+    }
+
+    if (!found) {
+        regs->a0 = -1; 
+    } else if (is_terminated) {
+        regs->a0 = waiting_pid; 
+    } else {
+        current_process->status = WAITING;
+        current_process->waiting_pid = waiting_pid;
+        schedule();
+        regs->a0 = waiting_pid; 
+    }
+    
+    regs->sepc += 4;
+    return;
+}
+
 void exit_ecall_helper(struct pt_regs* regs){
-    // 5 exit
+    // printf("PID %d exit\n", get_current()->pid);
+    // 6 exit
     // int status = regs->a0; 
     // printf("[Kernel] Process %d exited with status %d\n", get_current()->pid, status);
     thread_exit();
 }
 
 void stop_ecall_helper(struct pt_regs* regs){
-    // 6 stop
+    // 7 stop
     long target_pid = regs->a0;
     if (target_pid == 0) {
         printf("[Kernel] Permission denied: Cannot stop Idle Thread.\n");
@@ -210,19 +244,18 @@ void unknown_ecall_helper(struct pt_regs* regs){
 }
 
 void display_ecall_helper(struct pt_regs* regs) {
-    // 7: display
+    // 8: display
     unsigned int* bmp_image = (unsigned int*)regs->a0;
     unsigned int width = regs->a1;
     unsigned int height = regs->a2;
-
     video_bmp_display(bmp_image, width, height);
-    
+
     regs->sepc += 4;
 }
 
 extern uint64_t TIMERBASE_FREQ; 
 void usleep_ecall_helper(struct pt_regs* regs) {
-    // 8 usleep
+    // 9 usleep
     unsigned int usec = regs->a0;
     
     unsigned long wait_ticks = (unsigned long)usec * (TIMERBASE_FREQ / 1000000);
@@ -244,7 +277,7 @@ void usleep_ecall_helper(struct pt_regs* regs) {
 }
 
 void signal_ecall_helper(struct pt_regs* regs) {
-    // 9 signal
+    // 10 signal
     int signum = regs->a0;
     uint64_t handler = regs->a1;
 
@@ -259,11 +292,12 @@ void signal_ecall_helper(struct pt_regs* regs) {
 }
 
 void sigreturn_ecall_helper(struct pt_regs* regs) {
-    // 10 sigreturn
+    // 11 sigreturn
     struct task_struct *current = get_current();
 
-    struct page* sig_page = phys_to_page(current->signal_stack_page);
-    free_pages(sig_page, 0); 
+    // struct page* sig_page = phys_to_page(current->signal_stack_page);
+    // free_pages(sig_page, 0); 
+    kfree((void*)current->signal_stack_page);
     
     *regs = current->signal_saved_regs;
 
@@ -271,7 +305,7 @@ void sigreturn_ecall_helper(struct pt_regs* regs) {
 }
 
 void kill_ecall_helper(struct pt_regs* regs) {
-    // 11 kill
+    // 12 kill
     int target_pid = regs->a0;
     int signum = regs->a1;
     
@@ -292,6 +326,11 @@ void kill_ecall_helper(struct pt_regs* regs) {
                     task->sigpending |= (1 << signum);
                 } else {
                     task->status = TERMINATED;
+                    if (task->parent != NULL && task->parent->status == WAITING && task->parent->waiting_pid == task->pid) {
+                        
+                        task->parent->status = READY;
+                        task->parent->waiting_pid = -1;
+                    }
                 }
                 break;
             }

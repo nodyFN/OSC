@@ -1,10 +1,13 @@
-#ifndef __THREAD_H__
-#define __THREAD_H__
+#ifndef __THREAD__H__
+#define __THREAD__H__
 
 #include "trap.h"
 
+#define KERNEL_STACK_SIZE 0x8000
+#define USER_STACK_SIZE 0x8000
+
 enum TASK_STATUS{
-    RUNNING, READY, TERMINATED
+    RUNNING, READY, ABORTED, TERMINATED, WAITING
 };
 
 struct task_struct {
@@ -17,11 +20,13 @@ struct task_struct {
     enum TASK_STATUS status;
     unsigned long kernel_sp;
     unsigned long user_sp;
-    unsigned long stack;
+    unsigned long kernel_stack;
     int stack_page_order;
     unsigned long user_stack;
     int user_stack_page_order;
     struct task_struct* next;
+    struct task_struct* parent;
+    int waiting_pid;
 
     uint64_t signal_handler[32];
     uint32_t sigpending;
