@@ -119,7 +119,7 @@ int get_initrd_info(const void* dtb_addr, uint64_t* initrd_start_addr, uint64_t*
 }
 
 void initrd_exec(const void* initrd_start, const void* initrd_end, const char* run_filename){
-        char* current = (char*)initrd_start;
+    char* current = (char*)initrd_start;
 
     while(1) { 
         struct cpio_newc_header* header = (struct cpio_newc_header*)current;
@@ -142,16 +142,15 @@ void initrd_exec(const void* initrd_start, const void* initrd_end, const char* r
             uint64_t stack_size = 0x1000;
             char* file_content = current + ALIGN4(sizeof(struct cpio_newc_header) + namesize);
             uint64_t program_entry = (uint64_t)file_content;
-
             uint64_t user_sp = (uint64_t)kmalloc(4096) + stack_size;
-
+            
             __asm__ volatile (
-                "csrc sstatus, %0\n\t"  // 清除 SPP bit (bit 8) -> 設定為 0 (User Mode)
-                "csrs sstatus, %1\n\t"  // 設定 SPIE bit (bit 5) -> 設定為 1 (開啟 User Mode 的中斷)
-                "csrw sepc, %2\n\t"     // 將 sepc 指向 User Program 的進入點
-                "csrw sscratch, sp\n\t" // 【關鍵】將目前的 Kernel Stack 存入 sscratch，給之後的 handle_exception 用
-                "mv sp, %3\n\t"         // 將 CPU 的 sp 切換為剛剛分配的 User Stack
-                "sret\n\t"              // 華麗轉身，進入 User Mode！
+                "csrc sstatus, %0\n\t" 
+                "csrs sstatus, %1\n\t" 
+                "csrw sepc, %2\n\t" 
+                "csrw sscratch, sp\n\t"
+                "mv sp, %3\n\t"
+                "sret\n\t"
                 :
                 : "r"(1 << 8), "r"(1 << 5), "r"(program_entry), "r"(user_sp)
             );

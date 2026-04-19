@@ -1,7 +1,28 @@
 #include "uart.h"
+#include "fdt.h"
+#include "utils.h"
 #include <stdint.h>
 
-void uart_init() {
+
+uint64_t UART_BASE;
+
+void uart_init(void* dtb) {
+    // UART_BASE = 0xd4017000;
+    int uart_offset = -1;
+    uart_offset = fdt_path_offset(dtb, "/soc/serial");
+    if(uart_offset < 0){
+        uart_puts("[Warning] No uart address\n");
+    }else{
+        int len;
+        uint32_t* prop = (uint32_t*)fdt_getprop(dtb, uart_offset, "reg", &len);
+        if(!prop){
+            uart_puts("[Warning] No uart address\n");
+        }else{
+            UART_BASE = ((uint64_t)toLittleEndian((*prop))<<32 | (uint64_t)toLittleEndian(*(prop+1)));
+            uart_puts("uart addr: ");
+            uart_hex(UART_BASE);
+        }
+    }
 
 }
 

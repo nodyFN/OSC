@@ -1,3 +1,5 @@
+# not use anymore
+
 echo "========================================"
 echo " Starting Custom Bootloader Environment "
 echo "========================================"

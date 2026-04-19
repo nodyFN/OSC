@@ -1,30 +1,33 @@
-#include <stdint.h>
 #include "uart.h"
-#include "task.h"
+#include "fdt.h"
+#include "utils.h"
+#include <stdint.h>
+#include <stddef.h>
 
-#define BUF_SIZE 256
+#define BUF_SIZE 4096
 
-void uart_rx_bottom_half(void *arg) {
-
-}   
+uint64_t UART_BASE;
 
 struct ring_buffer {
     char data[BUF_SIZE];
     volatile int head;
     volatile int tail;
 };
-
 struct ring_buffer tx_buf = { .head = 0, .tail = 0 };
 struct ring_buffer rx_buf = { .head = 0, .tail = 0 };
+
 int tx_is_empty(){ 
     return tx_buf.head == tx_buf.tail;
 }
 
-volatile int uart_async_enabled = 0;
-
-void uart_init() {
-    *UART_IER |= 0x01;
-    *UART_MCR |= (1 << 3);
+void uart_tx_bottom_half(){
+    if(tx_buf.head != tx_buf.tail){
+        char c = tx_buf.data[tx_buf.tail];
+        tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
+        *UART_THR = c; 
+    }else{
+        *UART_IER &= ~0x02;
+    }
 }
 
 void uart_trap_handler(){
@@ -36,55 +39,39 @@ void uart_trap_handler(){
             char c = *UART_RBR;
             rx_buf.data[rx_buf.head] = c;
             rx_buf.head = (rx_buf.head + 1) % BUF_SIZE;
-
-            add_task(uart_rx_bottom_half, NULL, 1);
         }
     }else if(iir == 0x02){  
-        // tx       
-        if(!tx_is_empty()){
-            char c = tx_buf.data[tx_buf.tail];
-            tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
-            *UART_THR = c; 
-        }else{
-            *UART_IER &= ~0x02; 
-        }
+        // tx interrupt      
+        add_task(uart_tx_bottom_half, NULL, 1);
     }
 }
 
-void uart_putc(char c) {
-    uint64_t sstatus;
-    asm volatile("csrr %0, sstatus" : "=r"(sstatus));
-    int irq_enabled = (sstatus & (1 << 1));
-
-    if (!uart_async_enabled || !irq_enabled) {
-        while (tx_buf.head != tx_buf.tail) {
-            while ((*UART_LSR & 0x20) == 0);
-            *UART_THR = tx_buf.data[tx_buf.tail];
-            tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
+void uart_init(void* dtb) {
+    int uart_offset = -1;
+    uart_offset = fdt_path_offset(dtb, "/soc/serial");
+    if(uart_offset < 0){
+        uart_puts("[Warning] No uart address\n");
+    }else{
+        int len;
+        uint32_t* prop = (uint32_t*)fdt_getprop(dtb, uart_offset, "reg", &len);
+        if(!prop){
+            uart_puts("[Warning] No uart address\n");
+        }else{
+            UART_BASE = ((uint64_t)toLittleEndian((*prop))<<32 | (uint64_t)toLittleEndian(*(prop+1)));
+            uart_puts("uart addr: ");
+            uart_hex(UART_BASE);
         }
-
-        while ((*UART_LSR & 0x20) == 0);
-        *UART_THR = c;
-        return;
-    } else {
-        int next_head = (tx_buf.head + 1) % BUF_SIZE;
-        while (next_head == tx_buf.tail);
-
-        *UART_IER &= ~0x02;
-
-        tx_buf.data[tx_buf.head] = c;
-        tx_buf.head = next_head;
-
-        if (*UART_LSR & 0x20) {
-            if (tx_buf.head != tx_buf.tail) {
-                char next_c = tx_buf.data[tx_buf.tail];
-                tx_buf.tail = (tx_buf.tail + 1) % BUF_SIZE;
-                *UART_THR = next_c;
-            }
-        }
-
-        *UART_IER |= 0x02;
     }
+
+    *UART_IER |= 0x01;
+    *UART_MCR |= (1 << 3);
+}
+
+void uart_putc(char c) {
+    tx_buf.data[tx_buf.head] = c;
+    tx_buf.head = (tx_buf.head + 1) % BUF_SIZE;
+
+    *UART_IER |= 0x02;
 }
 
 void uart_puts(const char *s) {
@@ -98,11 +85,7 @@ void uart_puts(const char *s) {
 
 char uart_getc() {
     while (rx_buf.head == rx_buf.tail) {
-        uint64_t sstatus;
-        asm volatile("csrr %0, sstatus" : "=r"(sstatus));
-        if (sstatus & (1 << 1)) {
-            asm volatile("wfi");
-        } 
+        __asm__ volatile("wfi"); 
     }
 
     char c = rx_buf.data[rx_buf.tail];

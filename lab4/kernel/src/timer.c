@@ -12,18 +12,28 @@ extern struct KernelInfo kernel_info;
 
 struct list_head timer_list;
 
-void print_running_time(void *arg){
-    uint64_t* second = (uint64_t*) arg;
+void enable_timer_interrupt(){
+    __asm__ volatile(
+        "csrs sie, %0"
+        :
+        : "r"(1 << 5)
+    );
+}
 
+int get_time_after_boot(){
     uint64_t current_time = get_time();
     uint64_t seconds_after_boot = current_time / TIMERBASE_FREQ;
-    printf("Tick! %d seconds after booting.\n", seconds_after_boot);
+    return seconds_after_boot;
+}
 
-    if(second != NULL){
-        add_timer(print_running_time, second, (*second) * TIMERBASE_FREQ);
-    } else {
-        if (second) kfree(second);
-    }
+void periodic_tick_handler(){
+    // printf("Tick! %d seconds after booting.\n", get_time_after_boot());
+    add_timer(periodic_tick_handler, NULL, PERIODIC_TIME_SLOT_SECOND);
+}
+
+void one_shot_alert_callback(void* arg){
+    printf("%s\n", (char*)arg);
+    kfree(arg);
 }
 
 void set_next_timer(int second) {
@@ -48,22 +58,19 @@ void timer_init(){
 
     INIT_LIST_HEAD(&timer_list);
 
-    // set_next_timer(0);
-    uint64_t* second = (uint64_t*)kmalloc(sizeof(uint64_t));
-    *second = 2;
-    add_timer(print_running_time, second, 2 * TIMERBASE_FREQ);
-    __asm__ volatile("csrs sie, %0" : : "r"(1 << 5));
+    add_timer(periodic_tick_handler, NULL, PERIODIC_TIME_SLOT_SECOND);
+    enable_timer_interrupt();
 }
 
 void set_next_timer_absolute(uint64_t absolute_tick){
     sbi_set_timer(absolute_tick);
 }
 
-void add_timer(timer_callback_t callback, void *arg, uint64_t timeout_ticks) {
+void add_timer(timer_callback_t callback, void *arg, double second) {
     struct timer_event *new_timer = (struct timer_event *)kmalloc(sizeof(struct timer_event));
     
     uint64_t current_time = get_time();
-
+    uint64_t timeout_ticks = second * TIMERBASE_FREQ;
     new_timer->expire_time = current_time + timeout_ticks;
     new_timer->callback = callback;
     new_timer->arg = arg;
@@ -120,10 +127,4 @@ void timer_handler(){
     } else {
         set_next_timer_absolute(-1ULL);
     }
-}
-
-void timer_event_test(){
-    add_timer(print_running_time, NULL, 2 * TIMERBASE_FREQ);
-    add_timer(print_running_time, NULL, 3 * TIMERBASE_FREQ);
-    add_timer(print_running_time, NULL, 5 * TIMERBASE_FREQ);
 }

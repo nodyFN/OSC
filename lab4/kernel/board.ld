@@ -16,16 +16,14 @@ SECTIONS
 
     .data : {
         . = ALIGN(8);
-        *(.data .data.*)
-        *(.sdata .sdata.*)
+        *(.data .data.* .sdata .sdata.* .got .got.*)
     }
 
     .bss : {
         . = ALIGN(16);
         __bss_start = .;
-        *(.bss .bss.*)
+        *(.bss .bss.* .sbss .sbss.*)
         *(COMMON)
-        *(.sbss .sbss.*)
         __bss_end = .;
     }
 

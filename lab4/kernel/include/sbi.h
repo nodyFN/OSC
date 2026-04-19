@@ -3,7 +3,6 @@
 
 #include <stdint.h>
 
-#define SBI_EXT_TIME 0x54494D45
 enum sbi_ext_base_fid {
     SBI_EXT_BASE_GET_SPEC_VERSION,
     SBI_EXT_BASE_GET_IMP_ID,

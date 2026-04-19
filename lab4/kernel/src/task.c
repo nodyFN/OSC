@@ -37,6 +37,8 @@ void add_task(task_callback_t callback, void *arg, int priority) {
     local_irq_restore(irq_flags);
 }
 
+int current_task_priority = 9999;
+
 void run_tasks() {
     while (1) {
         uint64_t irq_flags;
@@ -48,7 +50,14 @@ void run_tasks() {
         }
 
         struct task_event *first = list_entry(task_list.next, struct task_event, list);
+        if (first->priority >= current_task_priority) {
+            local_irq_restore(irq_flags);
+            break;
+        }
         list_del(&first->list);
+
+        int prev_task_priority = current_task_priority;
+        current_task_priority = first->priority;
 
         local_irq_restore(irq_flags);
 
@@ -59,6 +68,10 @@ void run_tasks() {
         }
 
         asm volatile("csrci sstatus, 2");
+
+        local_irq_save(irq_flags);
+        current_task_priority = prev_task_priority;
+        local_irq_restore(irq_flags);
 
         kfree(first);
     }

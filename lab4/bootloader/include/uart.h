@@ -3,30 +3,24 @@
 
 #include <stdint.h>
 
+extern uint64_t UART_BASE;
+
 #ifdef QEMU
-    #define UART_BASE 0x10000000
-
-    #define UART_THR  (volatile uint8_t *)(UART_BASE + 0x00) // 0x00
-    #define UART_RBR  (volatile uint8_t *)(UART_BASE + 0x00) // 0x00
-    #define UART_LSR  (volatile uint8_t *)(UART_BASE + 0x05) // 0x05 (標準 Offset)
-
+   typedef volatile uint8_t * uart_reg_t;
+   #define UART_SHIFT 0
 #else
-    #define UART_BASE 0xd4017000
-
-    /* * SpacemiT K1 UART
-     * Register Width = 4 (uint32_t)
-     * Register Shift = 2 (Offset * 4)
-     */
-    #define UART_THR  (volatile uint32_t *)(UART_BASE + 0x00) // 0x00
-    #define UART_RBR  (volatile uint32_t *)(UART_BASE + 0x00) // 0x00
-    #define UART_LSR  (volatile uint32_t *)(UART_BASE + 0x14) // 0x05 * 4 = 0x14
-
+    typedef volatile uint32_t * uart_reg_t;
+    #define UART_SHIFT 2
 #endif
+
+#define UART_THR  (uart_reg_t)(UART_BASE + 0x00 * (1 << UART_SHIFT)) // 0x00
+#define UART_RBR  (uart_reg_t)(UART_BASE + 0x00 * (1 << UART_SHIFT)) // 0x00
+#define UART_LSR  (uart_reg_t)(UART_BASE + 0x05 * (1 << UART_SHIFT)) // 0x05
 
 #define LSR_RX_READY 0x01
 #define LSR_TX_IDLE  0x20
 
-void uart_init();
+void uart_init(void* dtb);
 void uart_putc(char c);
 void uart_puts(const char *s);
 char uart_getc();

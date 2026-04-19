@@ -1,4 +1,3 @@
-/* kernel/include/mm.h */
 #ifndef __MM_H__
 #define __MM_H__
 
@@ -34,5 +33,7 @@ void memory_reserve(uint64_t start, uint64_t end);
 void dump_buddy_info();
 
 void mm_test();
+
+void test_alloc_1();
 
 #endif

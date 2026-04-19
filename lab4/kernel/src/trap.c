@@ -5,13 +5,6 @@
 #include "plic.h"
 #include "task.h"
 
-void kernel_resume() {
-    printf("\nKernel resumed! Back to idle loop.\n");
-    while (1) {
-        uart_putc(uart_getc()); 
-    }
-}
-
 void do_trap(struct pt_regs* regs){
     if(regs->scause & (1UL << 63)) { // interrupt
         uint64_t exception_code = regs->scause & ~(1ULL << 63);
@@ -27,18 +20,12 @@ void do_trap(struct pt_regs* regs){
                 plic_complete(irq);
             }
         }
+        // printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
     }else{
         if(regs->scause == 8){
-            // ecall
-            if (regs->a7 == 93) {
-                printf("User program finished execution.\n");
-                regs->sstatus |= (1 << 8); 
-                regs->sepc = (uint64_t)kernel_resume;
-                
-                return;
-            }
+            printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
         }
-        printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
+        // printf("sepc: %lx, scause: %lx, stval: %lx\n", regs->sepc, regs->scause, regs->stval);
 
         regs->sepc += 4;
     }

@@ -2,7 +2,6 @@
 .global _start
 
 _start:
-    csrw sscratch, zero
     la sp, _stack_top
     la t0, __bss_start
     la t1, __bss_end

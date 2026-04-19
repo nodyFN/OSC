@@ -11,10 +11,9 @@ extern char _bl_end[];
 int should_load_kernel;
 
 #ifdef QEMU
-    #define KERNEL_DEST_ADDR  0x80200000
+    #define KERNEL_DEST_ADDR  0x80200000UL
 #else
-    // #define KERNEL_DEST_ADDR  0x40200000
-    #define KERNEL_DEST_ADDR 0x00200000
+    #define KERNEL_DEST_ADDR 0x00200000UL
 #endif
 
 void* global_dtb;
@@ -70,6 +69,7 @@ void main_post_reloc(uint64_t hartid, void *dtb) {
     __asm__ __volatile__("fence.i");
 
     printf(">> [High Mem] Jumping to Kernel at %lx...\n", KERNEL_DEST_ADDR);
+    printf("DTB address: %lx\n", dtb);
 
     void (*kernel_entry)(uint64_t, void *) = (void (*)(uint64_t, void *))KERNEL_DEST_ADDR;
 
@@ -128,9 +128,9 @@ void relocate_and_jump(void *dtb, uint64_t hartid) {
     printf(">> [Reloc] Jumping to high memory...\n");
 
     __asm__ __volatile__(
-        "mv sp, %0 \n\t"
         "mv a0, %2 \n\t"
         "mv a1, %3 \n\t"
+        "mv sp, %0 \n\t"
         "jr %1     \n\t"
         : 
         : "r" (new_sp), "r" (new_func_entry), "r" (hartid), "r" (dtb)
@@ -141,14 +141,14 @@ void relocate_and_jump(void *dtb, uint64_t hartid) {
 }
 
 void main(uint64_t hartid, void *dtb) {
-    uart_init();
-
+    uart_init(dtb);
+    
     // wait for QEMU to connect (if running in QEMU)
     #ifdef QEMU
-        printf(">> [Bootloader] Waiting for QEMU to connect...\n");
+        // printf(">> [Bootloader] Waiting for QEMU to connect...\n");
         uart_getc();
     #endif
-
+    printf("DTB address: %lx\n", dtb);
     printf("\nbootloader: \n");
     printf(">> [Bootloader] Started.\n");
     relocate_and_jump(dtb, hartid);
