@@ -1,0 +1,65 @@
+#ifndef __LIST_H__
+#define __LIST_H__
+
+#include <stddef.h>
+
+struct list_head {
+    struct list_head *next, *prev;
+};
+
+#define LIST_HEAD_INIT(name) { &(name), &(name) }
+#define LIST_HEAD(name) struct list_head name = LIST_HEAD_INIT(name)
+
+static inline void INIT_LIST_HEAD(struct list_head *list) {
+    list->next = list;
+    list->prev = list;
+}
+
+static inline void list_add(struct list_head *new, struct list_head *head) {
+    struct list_head *next = head->next;
+    next->prev = new;
+    new->next = next;
+    new->prev = head;
+    head->next = new;
+}
+
+static inline void list_del(struct list_head *entry) {
+    struct list_head *prev = entry->prev;
+    struct list_head *next = entry->next;
+    next->prev = prev;
+    prev->next = next;
+    entry->next = NULL;
+    entry->prev = NULL;
+}
+
+static inline int list_empty(const struct list_head *head) {
+    return head->next == head;
+}
+
+static inline void list_add_tail(struct list_head *new, struct list_head *head) {
+    struct list_head *prev = head->prev;
+
+    prev->next = new;
+    new->prev = prev;
+    new->next = head;
+    head->prev = new;
+}
+
+#ifndef offsetof
+#define offsetof(TYPE, MEMBER) ((size_t) &((TYPE *)0)->MEMBER)
+#endif
+
+#define container_of(ptr, type, member) ({          \
+    const typeof( ((type *)0)->member ) *__mptr = (ptr);    \
+    (type *)( (char *)__mptr - offsetof(type,member) );})
+
+#define list_entry(ptr, type, member) container_of(ptr, type, member)
+
+#define list_for_each(pos, head) \
+    for (pos = (head)->next; pos != (head); pos = pos->next)
+
+#define list_for_each_safe(pos, n, head) \
+    for (pos = (head)->next, n = pos->next; pos != (head); \
+        pos = n, n = pos->next)
+
+#endif
