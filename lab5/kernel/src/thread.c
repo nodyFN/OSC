@@ -34,7 +34,7 @@ void schedule() {
     struct task_struct* next = prev->next;
 
     struct task_struct* head = next;
-    while(next->status == TERMINATED || next->status == WAITING || next->status == ABORTED){
+    while(next->status == TERMINATED || next->status == WAITING){
         next = next->next;
         if (next == head) {
             next = run_queue; 
@@ -108,7 +108,6 @@ void kill_zombies(){
     struct task_struct *prev = run_queue;
     while(current != run_queue){
         if(current->status == TERMINATED){
-            current->status = ABORTED; // prevent from becoming a dangling process
             prev->next = current->next;
             kfree((void*)current->kernel_stack);           
             if (current->user_stack != 0) {

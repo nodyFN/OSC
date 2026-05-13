@@ -159,7 +159,7 @@ void waitpid_ecall_helper(struct pt_regs* regs){
         do {
             if (task->pid == waiting_pid) {
                 found = 1;
-                if (task->status == TERMINATED || task->status == ABORTED) {
+                if (task->status == TERMINATED) {
                     is_terminated = 1;
                 }
                 break;
