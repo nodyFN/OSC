@@ -18,7 +18,7 @@
 struct KernelInfo kernel_info;
 
 void test_kernel_shell(){
-    uart_puts("test_kernel_shell: \n");
+    uart_puts("test_kernel_shell:\n");
     while (1) {
         uart_putc(uart_getc());
     }
