@@ -5,6 +5,7 @@
 #include "fdt.h"
 #include "string.h"
 #include "initrd.h"
+#include "vm.h"
 
 extern char _start[]; 
 extern char _end[];   
@@ -112,19 +113,20 @@ void mm_init(void *dtb) {
         ram_size = 0x10000000; 
     }
 
-    phys_mem_start = ram_base;
-    phys_mem_end = ram_base + ram_size;
+    phys_mem_start = PA_TO_VA(ram_base);
+    phys_mem_end = PA_TO_VA(ram_base + ram_size);
     total_pages = ram_size / PAGE_SIZE;
 
-    // uint64_t kernel_start = (uint64_t)_start;
-    uint64_t kernel_end   = (uint64_t)_stack_top;
+    uint64_t kernel_end = (uint64_t)_stack_top;
 
     uint64_t dtb_start = (uint64_t)dtb;
     uint32_t dtb_totalsize = fdt_total_size(dtb);
     uint64_t dtb_end = dtb_start + dtb_totalsize;
 
-    uint64_t initrd_start = 0, initrd_end = 0;
-    int has_initrd = (get_initrd_info(dtb, &initrd_start, &initrd_end) != -1);
+    uint64_t initrd_start_pa = 0, initrd_end_pa = 0;
+    int has_initrd = (get_initrd_info(dtb, &initrd_start_pa, &initrd_end_pa) != -1);
+    uint64_t initrd_start = has_initrd ? PA_TO_VA(initrd_start_pa) : 0;
+    uint64_t initrd_end   = has_initrd ? PA_TO_VA(initrd_end_pa) : 0;
 
     uint64_t mem_map_size = total_pages * sizeof(struct page);
 
@@ -198,6 +200,8 @@ void mm_init(void *dtb) {
     for (int i = 0; i < POOL_COUNT; i++) {
         INIT_LIST_HEAD(&pool_list[i]);
     }
+    
+    setup_finer_granularity_paging();
 
     print_log = 0;
 }

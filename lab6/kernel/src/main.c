@@ -13,8 +13,16 @@
 #include "system_call.h"
 #include "ecall_helper.h"
 #include "video.h"
+#include "vm.h"
 
 struct KernelInfo kernel_info;
+
+void test_kernel_shell(){
+    uart_puts("test_kernel_shell: \n");
+    while (1) {
+        uart_putc(uart_getc());
+    }
+}
 
 void init_process() {
     int ret = exec("osctest.bin");
@@ -28,6 +36,8 @@ void irq_enable() {
 }
 
 void main(uint64_t hartid, void *dtb) {
+    dtb = (void*)(PA_TO_VA((unsigned long)dtb));
+
     uart_init(dtb);
 
     kernel_info.hartid = hartid;
@@ -41,12 +51,13 @@ void main(uint64_t hartid, void *dtb) {
     timer_init();
     plic_init();
     ecall_helper_commit();
-    video_init();
+    // video_init();
 
     asm volatile("move tp, %0" : : "r"(kthread_create(thread_idle)));
+    kthread_create(test_kernel_shell);
     // for (int i = 0; i < 3; i++)
     //     kthread_create(thread_foo);
-    user_process_create(init_process);
+    // user_process_create(init_process);
     irq_enable();
     thread_idle();
 

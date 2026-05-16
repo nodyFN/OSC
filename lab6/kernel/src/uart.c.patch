@@ -1,0 +1,48 @@
+--- kernel/src/uart.c
++++ kernel/src/uart.c
+@@ -23,8 +23,8 @@
+ }
+ 
+ void uart_tx_bottom_half(){
+-    // uint64_t irq_flags;
+-    // local_irq_save(irq_flags);
++    uint64_t irq_flags;
++    local_irq_save(irq_flags);
+ 
+     if(tx_buf.head != tx_buf.tail){
+         char c = tx_buf.data[tx_buf.tail];
+@@ -37,7 +37,7 @@
+         *UART_IER &= ~0x02;
+     }
+ 
+-    // local_irq_restore(irq_flags);
++    local_irq_restore(irq_flags);
+ }
+ int rr = 0;
+ void uart_trap_handler(){
+@@ -93,17 +93,20 @@
+     if(c == '\n'){
+         uart_putc('\r');
+     }
+-    // uint64_t irq_flags;
+-    // local_irq_save(irq_flags);
++    uint64_t irq_flags;
++    local_irq_save(irq_flags);
++
++    int was_empty = tx_is_empty();
+ 
+     tx_buf.data[tx_buf.head] = c;
+     tx_buf.head = (tx_buf.head + 1) % BUF_SIZE;
+ 
+-    // local_irq_restore(irq_flags);
+-
+-    *UART_IER |= 0x02;
++    if (was_empty && (*UART_LSR & LSR_TX_IDLE)) {
++        uart_tx_bottom_half();
++    } else {
++        *UART_IER |= 0x02;
++    }
++    local_irq_restore(irq_flags);
+ }
+ 
+ void uart_puts(const char *s) {

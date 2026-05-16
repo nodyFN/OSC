@@ -4,6 +4,7 @@
 #include "stdio.h"
 #include "utils.h"
 #include "uart.h"
+#include "vm.h"
 
 extern struct KernelInfo kernel_info;
 
@@ -26,6 +27,7 @@ void get_plic_base(){
             printf("[Warning] can not find plic [2]\n");
         }else{
             PLIC_BASE = ((uint64_t)toLittleEndian((*prop))<<32 | (uint64_t)toLittleEndian(*(prop+1)));
+            PLIC_BASE = PA_TO_VA(PLIC_BASE);
             // printf("PLIC_BASE: %lx\n", PLIC_BASE);
         }
     }

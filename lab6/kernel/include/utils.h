@@ -1,6 +1,8 @@
 #ifndef __UTILS_H__
 #define __UTILS_H__
 
+#include <stdint.h>
+
 static inline uint32_t toLittleEndian(uint32_t val) {
     return ((val & 0x000000FFU) << 24) |
            ((val & 0x0000FF00U) << 8)  |
@@ -17,6 +19,7 @@ struct KernelInfo{
     void* dtb_addr;
     uint64_t initrd_start_addr;
     uint64_t initrd_end_addr;
+    uint64_t* new_pgd;
 };
 
 #define local_irq_save(flags) \

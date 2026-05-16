@@ -3,6 +3,7 @@
 #include "utils.h"
 #include "thread.h"
 #include "task.h"
+#include "vm.h"
 #include <stdint.h>
 #include <stddef.h>
 
@@ -80,6 +81,8 @@ void uart_init(void* dtb) {
             uart_puts("[Warning] No uart address\n");
         }else{
             UART_BASE = ((uint64_t)toLittleEndian((*prop))<<32 | (uint64_t)toLittleEndian(*(prop+1)));
+            UART_BASE = PA_TO_VA(UART_BASE);
+            
             uart_puts("uart addr: ");
             uart_hex(UART_BASE);
         }
