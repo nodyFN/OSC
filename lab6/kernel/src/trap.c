@@ -5,12 +5,11 @@
 #include "plic.h"
 #include "task.h"
 #include "thread.h"
-#include "ecall_helper.h"
+#include "exception_helper.h"
 #include "string.h"
 #include "mm.h"
 #include "vm.h"
 
-extern void (*ecall_helper_list[256])(struct pt_regs*);
 extern char sigreturn_stub[];
 extern char sigreturn_stub_end[];
 
@@ -64,16 +63,18 @@ void do_trap(struct pt_regs* regs){
             }
         }
     }else{
-        if(regs->scause == 8){
-            ecall_helper_list[regs->a7](regs);
-        }else {
-            printf("\n[Kernel Panic] Unhandled Exception!\n");
-            printf("PID: %d, scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx\n", 
-                    get_current()->pid, regs->scause, regs->sepc, regs->stval);
-            printf("Killing the crashing thread...\n");
-            thread_exit();
-            return;
-        }
+        extern void (*exception_helper_list[256])(struct pt_regs*);
+        exception_helper_list[regs->scause](regs);
+        // if(regs->scause == 8){
+        //     ecall_helper_list[regs->a7](regs);
+        // }else {
+        //     printf("\n[Kernel Panic] Unhandled Exception!\n");
+        //     printf("PID: %d, scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx\n", 
+        //             get_current()->pid, regs->scause, regs->sepc, regs->stval);
+        //     printf("Killing the crashing thread...\n");
+        //     thread_exit();
+        //     return;
+        // }
     }
     check_signals(regs);
 

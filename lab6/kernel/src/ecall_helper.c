@@ -129,20 +129,22 @@ void exec_ecall_helper(struct pt_regs* regs){
     memcpy(&new_pgd[256], &kernel_info.new_pgd[256], 256 * sizeof(uint64_t));
 
     uint64_t num_code_pages = (file_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    void* new_code_va = kmalloc(num_code_pages * PAGE_SIZE);
-    memset(new_code_va, 0, num_code_pages * PAGE_SIZE);
-    memcpy(new_code_va, file_content, file_size);
-    map_pages(new_pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)new_code_va), PROT_CODE);
-    add_vma(current, 0x0, num_code_pages * PAGE_SIZE, PROT_CODE, 0);
+    // void* new_code_va = kmalloc(num_code_pages * PAGE_SIZE);
+    // memset(new_code_va, 0, num_code_pages * PAGE_SIZE);
+    // memcpy(new_code_va, file_content, file_size);
+    // map_pages(new_pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)new_code_va), PROT_CODE);
+    struct vma_struct* new_vma = add_vma(current, 0x0, num_code_pages * PAGE_SIZE, PROT_CODE, 0);
+    new_vma->file_content = file_content;
+    new_vma->filesize = file_size;
 
-    void* new_stack_va = kmalloc(USER_STACK_SIZE);
-    memset(new_stack_va, 0, USER_STACK_SIZE);  
+    // void* new_stack_va = kmalloc(USER_STACK_SIZE);
+    // memset(new_stack_va, 0, USER_STACK_SIZE);  
     uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
-    map_pages(new_pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)new_stack_va), PROT_STACK);
+    // map_pages(new_pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)new_stack_va), PROT_STACK);
     add_vma(current, stack_va, USER_STACK_VA, PROT_STACK, 0);
 
     current->pgd = new_pgd;
-    current->user_stack = (uint64_t)new_stack_va; 
+    // current->user_stack = (uint64_t)new_stack_va; 
     current->user_sp = USER_STACK_VA;
 
     uint64_t next_satp = MAKE_SATP(VA_TO_PA((uint64_t)current->pgd));
@@ -227,12 +229,15 @@ void fork_ecall_helper(struct pt_regs* regs){
     struct vma_struct *parent_vma;
     list_for_each(pos, &parent->vma_list) {
         parent_vma = list_entry(pos, struct vma_struct, list);
-        add_vma(child, parent_vma->start_address, parent_vma->end_address, parent_vma->prot, parent_vma->flags);
+        struct vma_struct *child_vma = add_vma(child, parent_vma->start_address, parent_vma->end_address, parent_vma->prot, parent_vma->flags);
+
+        child_vma->file_content = parent_vma->file_content;
+        child_vma->filesize = parent_vma->filesize;
     }
 
-    uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
-    uint64_t child_stack_pa = get_physical_address(child->pgd, stack_va);
-    child->user_stack = PA_TO_VA(child_stack_pa);
+    // uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
+    // uint64_t child_stack_pa = get_physical_address(child->pgd, stack_va);
+    // child->user_stack = PA_TO_VA(child_stack_pa);
 
     child->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
     memcpy((void*)child->kernel_stack, (void*)parent->kernel_stack, KERNEL_STACK_SIZE);
@@ -514,18 +519,18 @@ void mmap_ecall_helper(struct pt_regs* regs){
     if (prot & 2) pte_flags |= PTE_W;
     if (prot & 4) pte_flags |= PTE_X;
 
-    void* vma_va = kmalloc(aligned_length);
-    if (vma_va == NULL) {
-        regs->a0 = -1;
-        regs->sepc += 4;
-        return;
-    }
-    memset(vma_va, 0, aligned_length);
+    // void* vma_va = kmalloc(aligned_length);
+    // if (vma_va == NULL) {
+    //     regs->a0 = -1;
+    //     regs->sepc += 4;
+    //     return;
+    // }
+    // memset(vma_va, 0, aligned_length);
 
-    map_pages(current->pgd, mapping_addr, aligned_length, VA_TO_PA((uint64_t)vma_va), pte_flags);
-    add_vma(current, mapping_addr, mapping_addr + aligned_length, prot, flags);
+    // map_pages(current->pgd, mapping_addr, aligned_length, VA_TO_PA((uint64_t)vma_va), pte_flags);
+    add_vma(current, mapping_addr, mapping_addr + aligned_length, pte_flags, flags);
 
-    asm volatile("sfence.vma");
+    // asm volatile("sfence.vma");
 
     regs->a0 = mapping_addr;
     regs->sepc += 4;

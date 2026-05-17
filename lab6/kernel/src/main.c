@@ -14,6 +14,7 @@
 #include "ecall_helper.h"
 #include "video.h"
 #include "vm.h"
+#include "exception_helper.h"
 
 struct KernelInfo kernel_info;
 
@@ -43,6 +44,7 @@ void main(uint64_t hartid, void *dtb) {
     task_init();
     timer_init();
     plic_init();
+    exception_helper_commit();
     ecall_helper_commit();
     video_init();
 

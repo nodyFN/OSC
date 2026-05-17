@@ -18,6 +18,8 @@ struct vma_struct{
     uint64_t end_address;
     int prot;
     int flags;
+    void* file_content;
+    uint64_t filesize;
 };
 
 struct task_struct {
@@ -59,6 +61,6 @@ void enqueue(struct task_struct** queue, struct task_struct* task);
 
 struct task_struct* user_process_create(const char* filename);
 
-void add_vma(struct task_struct* task, uint64_t start_address, uint64_t end_address, int prot, int flags);
+struct vma_struct* add_vma(struct task_struct* task, uint64_t start_address, uint64_t end_address, int prot, int flags);
 
 #endif

@@ -1,5 +1,5 @@
-#ifndef __ECALL_HELPER__
-#define __ECALL_HELPER__
+#ifndef __ECALL_HELPER_H__
+#define __ECALL_HELPER_H__
 
 #include "trap.h"
 
