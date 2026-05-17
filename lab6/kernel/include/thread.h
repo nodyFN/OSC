@@ -2,6 +2,7 @@
 #define __THREAD__H__
 
 #include "trap.h"
+#include "list.h"
 
 #define KERNEL_STACK_SIZE 0x8000
 #define USER_STACK_SIZE 0x8000
@@ -9,6 +10,14 @@
 
 enum TASK_STATUS{
     RUNNING, READY, TERMINATED, WAITING
+};
+
+struct vma_struct{
+    struct list_head list;
+    uint64_t start_address;
+    uint64_t end_address;
+    int prot;
+    int flags;
 };
 
 struct task_struct {
@@ -36,6 +45,7 @@ struct task_struct {
     uint64_t signal_stack_page;
 
     uint64_t* pgd;
+    struct list_head vma_list;
 }; 
 
 struct task_struct* kthread_create(void (*threadfn)());
@@ -48,5 +58,7 @@ struct task_struct* get_current();
 void enqueue(struct task_struct** queue, struct task_struct* task);
 
 struct task_struct* user_process_create(const char* filename);
+
+void add_vma(struct task_struct* task, uint64_t start_address, uint64_t end_address, int prot, int flags);
 
 #endif

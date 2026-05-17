@@ -9,6 +9,7 @@
 #include "stdio.h"
 #include "video.h"
 #include "vm.h"
+#include "list.h"
 
 extern struct KernelInfo kernel_info;
 extern int nr_threads;
@@ -34,6 +35,7 @@ void ecall_helper_commit(){
     ecall_helper_list[10] = signal_ecall_helper;
     ecall_helper_list[11] = sigreturn_ecall_helper;
     ecall_helper_list[12] = kill_ecall_helper;
+    ecall_helper_list[13] = mmap_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -101,23 +103,43 @@ void exec_ecall_helper(struct pt_regs* regs){
 
     struct task_struct *current = get_current();
 
+
+    struct list_head *pos, *n;
+    struct vma_struct *vma;
+    list_for_each_safe(pos, n, &current->vma_list) {
+        vma = list_entry(pos, struct vma_struct, list);
+        list_del(pos);
+        kfree(vma);
+    }
+    INIT_LIST_HEAD(&current->vma_list);
+
+    for (int i = 0; i < 32; i++) {
+        current->signal_handler[i] = 0;
+    }
+    current->sigpending = 0;
+    current->is_handling_signal = 0;
+    
+    if (current->signal_stack_page != 0) {
+        kfree((void*)current->signal_stack_page);
+        current->signal_stack_page = 0;
+    }
+
     uint64_t* new_pgd = (uint64_t*)kmalloc(PAGE_SIZE);
     memset(new_pgd, 0, PAGE_SIZE);
-    
     memcpy(&new_pgd[256], &kernel_info.new_pgd[256], 256 * sizeof(uint64_t));
 
     uint64_t num_code_pages = (file_size + PAGE_SIZE - 1) / PAGE_SIZE;
     void* new_code_va = kmalloc(num_code_pages * PAGE_SIZE);
     memset(new_code_va, 0, num_code_pages * PAGE_SIZE);
     memcpy(new_code_va, file_content, file_size);
-    
     map_pages(new_pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)new_code_va), PROT_CODE);
+    add_vma(current, 0x0, num_code_pages * PAGE_SIZE, PROT_CODE, 0);
 
     void* new_stack_va = kmalloc(USER_STACK_SIZE);
-    memset(new_stack_va, 0, USER_STACK_SIZE);
-    
+    memset(new_stack_va, 0, USER_STACK_SIZE);  
     uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
     map_pages(new_pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)new_stack_va), PROT_STACK);
+    add_vma(current, stack_va, USER_STACK_VA, PROT_STACK, 0);
 
     current->pgd = new_pgd;
     current->user_stack = (uint64_t)new_stack_va; 
@@ -199,6 +221,14 @@ void fork_ecall_helper(struct pt_regs* regs){
     memset(child->pgd, 0, PAGE_SIZE);
     memcpy(&child->pgd[256], &parent->pgd[256], 256 * sizeof(uint64_t));
     copy_user_page_tables(child->pgd, parent->pgd);
+
+    INIT_LIST_HEAD(&child->vma_list);
+    struct list_head *pos;
+    struct vma_struct *parent_vma;
+    list_for_each(pos, &parent->vma_list) {
+        parent_vma = list_entry(pos, struct vma_struct, list);
+        add_vma(child, parent_vma->start_address, parent_vma->end_address, parent_vma->prot, parent_vma->flags);
+    }
 
     uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
     uint64_t child_stack_pa = get_physical_address(child->pgd, stack_va);
@@ -429,5 +459,74 @@ void kill_ecall_helper(struct pt_regs* regs) {
         regs->a0 = -1;
     }
     
+    regs->sepc += 4;
+}
+
+static int is_overlap(struct task_struct* current, uint64_t addr, unsigned long length){
+    struct list_head *curr;
+    struct vma_struct *entry;
+    uint64_t end_addr = addr + length;
+
+    list_for_each(curr, &current->vma_list) {
+        entry = list_entry(curr, struct vma_struct, list);
+        if (addr < entry->end_address && end_addr > entry->start_address) {
+            return 1;
+        }
+    }
+
+    return 0;
+}
+
+void mmap_ecall_helper(struct pt_regs* regs){
+    // 13 mmap
+    uint64_t addr = regs->a0;
+    unsigned long length = regs->a1;
+    int prot = regs->a2;
+    int flags = regs->a3;
+    struct task_struct *current = get_current();
+
+    unsigned long aligned_length = (length + PAGE_SIZE - 1) & (~(PAGE_SIZE - 1));
+    uint64_t mapping_addr = addr;
+    if(addr == 0 || (addr & (PAGE_SIZE - 1)) != 0 || is_overlap(current, addr, aligned_length)){
+        uint64_t search_addr = 0x40000000;  // 1 GB
+        uint64_t search_limit = 0x80000000; // 2 GB
+        int found = 0;
+
+        while ((search_addr + aligned_length) <= search_limit) {
+            if (!is_overlap(current, search_addr, aligned_length)) {
+                mapping_addr = search_addr;
+                found = 1;
+                break;
+            }
+            search_addr += PAGE_SIZE;
+        }
+
+        if (!found) {
+            printf("[Error] mmap: No unmapped area found!\n");
+            regs->a0 = -1;
+            regs->sepc += 4;
+            return;
+        }
+    }
+
+    uint64_t pte_flags = PTE_V | PTE_U | PTE_A | PTE_D; 
+    if (prot & 1) pte_flags |= PTE_R;
+    if (prot & 2) pte_flags |= PTE_W;
+    if (prot & 4) pte_flags |= PTE_X;
+
+    void* vma_va = kmalloc(aligned_length);
+    if (vma_va == NULL) {
+        regs->a0 = -1;
+        regs->sepc += 4;
+        return;
+    }
+    memset(vma_va, 0, aligned_length);
+
+    map_pages(current->pgd, mapping_addr, aligned_length, VA_TO_PA((uint64_t)vma_va), pte_flags);
+    add_vma(current, mapping_addr, mapping_addr + aligned_length, prot, flags);
+
+    asm volatile("sfence.vma");
+
+    regs->a0 = mapping_addr;
     regs->sepc += 4;
 }

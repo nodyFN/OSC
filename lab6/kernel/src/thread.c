@@ -6,6 +6,7 @@
 #include "utils.h"
 #include "vm.h"
 #include "initrd.h"
+#include "list.h"
 
 int nr_threads = 0;
 struct task_struct* run_queue = 0;
@@ -159,12 +160,16 @@ struct task_struct* user_process_create(const char* filename){
     memcpy(user_code_phys, file_content, file_size);
     map_pages(task->pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)user_code_phys), PROT_CODE);
 
+    INIT_LIST_HEAD(&task->vma_list);
+    add_vma(task, 0x0, num_code_pages * PAGE_SIZE, PROT_CODE, 0);
+
     // user stack
     task->user_stack = (unsigned long)kmalloc(USER_STACK_SIZE);
     memset((void*)task->user_stack, 0, USER_STACK_SIZE);
     task->user_sp = USER_STACK_VA;
     uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
     map_pages(task->pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)task->user_stack), PROT_STACK);
+    add_vma(task, stack_va, USER_STACK_VA, PROT_STACK, 0);
 
 
     // kernel stack
@@ -192,6 +197,18 @@ struct task_struct* user_process_create(const char* filename){
     task->parent = run_queue;
     task->waiting_pid = -1;
 
+
+
     enqueue(&run_queue, task);
     return task;
+}
+
+void add_vma(struct task_struct* task, uint64_t start_address, uint64_t end_address, int prot, int flags){
+    struct vma_struct* new_vma = (struct vma_struct*)kmalloc(sizeof(struct vma_struct));
+    new_vma->start_address = start_address;
+    new_vma->end_address = end_address;
+    new_vma->prot = prot;
+    new_vma->flags = flags;
+
+    list_add_tail(&new_vma->list, &task->vma_list);
 }
