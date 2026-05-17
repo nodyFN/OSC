@@ -1,9 +1,12 @@
-/* QEMU ramfb driver implementation */
-
+#include "vm.h"
+#include "string.h"
 #include <stdint.h>
 
-extern int strncmp(const char* s1, const char* s2, int n);
-extern void* memcpy(void* dst, const void* src, int n);
+#ifdef QEMU
+    #define FB_BASE_PA 0xfe000000UL
+#else
+    #define FB_BASE_PA 0x7f700000UL
+#endif
 
 // #define FB_BASE   0xfe000000
 #ifdef QEMU
@@ -50,7 +53,11 @@ struct QEMU_PACKED RAMFBCfg {
     uint32_t stride;
 };
 
-#define FW_CFG_BASE   0x10100000UL
+// #define FW_CFG_BASE   0x10100000UL
+// #define FW_CFG_SELECT (uint16_t*)(FW_CFG_BASE + 0x08)
+// #define FW_CFG_DATA   (uint64_t*)(FW_CFG_BASE + 0x00)
+// #define FW_CFG_DMA    (uint64_t*)(FW_CFG_BASE + 0x10)
+#define FW_CFG_BASE   PA_TO_VA(0x10100000UL)
 #define FW_CFG_SELECT (uint16_t*)(FW_CFG_BASE + 0x08)
 #define FW_CFG_DATA   (uint64_t*)(FW_CFG_BASE + 0x00)
 #define FW_CFG_DMA    (uint64_t*)(FW_CFG_BASE + 0x10)
@@ -87,9 +94,14 @@ static void fw_cfg_dma_transfer(void* address,
     struct FWCfgDmaAccess access = {
         .control = bswap32(control),
         .length = bswap32(length),
-        .address = bswap64((uint64_t)address),
+        // .address = bswap64((uint64_t)address),
+        .address = bswap64(VA_TO_PA((uint64_t)address)),
     };
-    *FW_CFG_DMA = bswap64((uint64_t)&access);
+
+    __sync_synchronize();
+
+    // *FW_CFG_DMA = bswap64((uint64_t)&access);
+    *FW_CFG_DMA = bswap64(VA_TO_PA((uint64_t)&access));
     while (bswap32(access.control) & ~FW_CFG_DMA_CTL_ERROR)
         ;
 }
@@ -142,7 +154,8 @@ static void flush_dcache(void* addr, unsigned long len) {
 void video_init() {
 #ifdef QEMU
     struct RAMFBCfg cfg = {
-        .addr = bswap64(FB_BASE),
+        // .addr = bswap64(FB_BASE),
+        .addr = bswap64(FB_BASE_PA),
         .fourcc = bswap32(XRGB8888),
         .flags = bswap32(0),
         .width = bswap32(FB_WIDTH),
@@ -152,10 +165,17 @@ void video_init() {
     fw_cfg_write_entry(&cfg, fw_cfg_find_file("etc/ramfb"),
                        sizeof(struct RAMFBCfg));
 #endif
+    unsigned int* fb = (unsigned int*)PA_TO_VA(FB_BASE_PA);
+    uint64_t fb_size = FB_WIDTH * FB_HEIGHT * sizeof(unsigned int);
+    
+    memset(fb, 0, fb_size);
+
+    flush_dcache(fb, fb_size);
 }
 
 void video_bmp_display(unsigned int* bmp_image, int width, int height) {
-    unsigned int* fb = (unsigned int*)FB_BASE;
+    // unsigned int* fb = (unsigned int*)FB_BASE;
+    unsigned int* fb = (unsigned int*)PA_TO_VA(FB_BASE_PA);
     int start_x = (FB_WIDTH - width) / 2;
     int start_y = (FB_HEIGHT - height) / 2;
     for (int y = 0; y < height; y++) {

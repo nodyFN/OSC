@@ -8,6 +8,7 @@
 #include "ecall_helper.h"
 #include "string.h"
 #include "mm.h"
+#include "vm.h"
 
 extern void (*ecall_helper_list[256])(struct pt_regs*);
 extern char sigreturn_stub[];
@@ -24,16 +25,21 @@ void check_signals(struct pt_regs *regs) {
                 
                 current->signal_saved_regs = *regs;
                 
-                current->signal_stack_page = (uint64_t)kmalloc(4096);
+                current->signal_stack_page = (uint64_t)kmalloc(PAGE_SIZE);
+                memset((void*)current->signal_stack_page, 0, PAGE_SIZE);
 
-                uint32_t *trampoline = (uint32_t *)(current->signal_stack_page + 4096 - 16);
                 size_t stub_size = sigreturn_stub_end - sigreturn_stub;
-                memcpy(trampoline, sigreturn_stub, stub_size);
+                uint64_t kva_trampoline = current->signal_stack_page + PAGE_SIZE - stub_size;
+                memcpy((void*)kva_trampoline, sigreturn_stub, stub_size);
                 
                 __asm__ volatile("fence.i");
 
-                regs->ra = (uint64_t)trampoline;
-                regs->sp = (uint64_t)trampoline;
+                map_pages(current->pgd, USER_SIGNAL_STACK_VA, PAGE_SIZE, VA_TO_PA(current->signal_stack_page), PROT_SIG_STACK);
+                __asm__ volatile("sfence.vma");
+                uint64_t uva_trampoline = USER_SIGNAL_STACK_VA + PAGE_SIZE - stub_size;
+                
+                regs->ra = uva_trampoline;
+                regs->sp = uva_trampoline;
                 regs->sepc = current->signal_handler[i];
                 
                 break;

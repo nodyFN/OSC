@@ -17,13 +17,6 @@
 
 struct KernelInfo kernel_info;
 
-void test_kernel_shell(){
-    uart_puts("test_kernel_shell:\n");
-    while (1) {
-        uart_putc(uart_getc());
-    }
-}
-
 void init_process() {
     int ret = exec("osctest.bin");
     if (ret == -1) {
@@ -51,13 +44,13 @@ void main(uint64_t hartid, void *dtb) {
     timer_init();
     plic_init();
     ecall_helper_commit();
-    // video_init();
+    video_init();
 
     asm volatile("move tp, %0" : : "r"(kthread_create(thread_idle)));
-    kthread_create(test_kernel_shell);
+    // kthread_create(test_kernel_shell);
     // for (int i = 0; i < 3; i++)
     //     kthread_create(thread_foo);
-    // user_process_create(init_process);
+    user_process_create("osctest.bin");
     irq_enable();
     thread_idle();
 

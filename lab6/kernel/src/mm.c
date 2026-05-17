@@ -184,6 +184,12 @@ void mm_init(void *dtb) {
         printf("[Reserve] Initrd region: %lx - %lx\n", initrd_start, initrd_end);
     }
 
+    uint64_t fb_pa = 0x7f700000UL;
+    uint64_t fb_va = PA_TO_VA(fb_pa);
+    uint64_t fb_size = 1920 * 1080 * 4;
+    memory_reserve(fb_va, fb_va + fb_size);
+    printf("[Reserve] Framebuffer: %lx - %lx\n", fb_va, fb_va + fb_size);
+
     memory_reserve(safe_heap, heap_ptr); 
     printf("[Reserve] Startup Allocator (mem_map): %lx - %lx\n", safe_heap, heap_ptr);
 

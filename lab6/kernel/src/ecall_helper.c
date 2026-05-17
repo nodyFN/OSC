@@ -8,6 +8,7 @@
 #include "mm.h"
 #include "stdio.h"
 #include "video.h"
+#include "vm.h"
 
 extern struct KernelInfo kernel_info;
 extern int nr_threads;
@@ -85,18 +86,100 @@ void exec_ecall_helper(struct pt_regs* regs){
         return;
     }
 
-    void* program_entry = get_file_address((void*)kernel_info.initrd_start_addr, (void*)kernel_info.initrd_end_addr, path);
+    uint64_t initrd_start_va = PA_TO_VA(kernel_info.initrd_start_addr);
+    uint64_t initrd_end_va   = PA_TO_VA(kernel_info.initrd_end_addr);
+
+    void* file_content = get_file_address((void*)initrd_start_va, (void*)initrd_end_va, path);
+    uint32_t file_size = get_file_size((void*)initrd_start_va, (void*)initrd_end_va, path);
     
-    if (program_entry == 0) {
+    if (file_content == 0) {
+        printf("[Error] exec cannot find %s\n", path);
         regs->a0 = -1;
         regs->sepc += 4;
         return;
     }
 
     struct task_struct *current = get_current();
-    regs->sepc = (uint64_t)program_entry;
-    regs->sp = current->user_stack + USER_STACK_SIZE;
+
+    uint64_t* new_pgd = (uint64_t*)kmalloc(PAGE_SIZE);
+    memset(new_pgd, 0, PAGE_SIZE);
+    
+    memcpy(&new_pgd[256], &kernel_info.new_pgd[256], 256 * sizeof(uint64_t));
+
+    uint64_t num_code_pages = (file_size + PAGE_SIZE - 1) / PAGE_SIZE;
+    void* new_code_va = kmalloc(num_code_pages * PAGE_SIZE);
+    memset(new_code_va, 0, num_code_pages * PAGE_SIZE);
+    memcpy(new_code_va, file_content, file_size);
+    
+    map_pages(new_pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)new_code_va), PROT_CODE);
+
+    void* new_stack_va = kmalloc(USER_STACK_SIZE);
+    memset(new_stack_va, 0, USER_STACK_SIZE);
+    
+    uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
+    map_pages(new_pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)new_stack_va), PROT_STACK);
+
+    current->pgd = new_pgd;
+    current->user_stack = (uint64_t)new_stack_va; 
+    current->user_sp = USER_STACK_VA;
+
+    uint64_t next_satp = MAKE_SATP(VA_TO_PA((uint64_t)current->pgd));
+    asm volatile("csrw satp, %0" : : "r"(next_satp));
+    asm volatile("sfence.vma");
+
+    regs->sepc = 0x0;
+    regs->sp = current->user_sp;
+
+    regs->a0 = 0;
+
     return;
+}
+
+static void copy_user_page_tables(uint64_t *dst_pgd, uint64_t *src_pgd) {
+    for (int i = 0; i < 256; i++) {
+        if (src_pgd[i] & PTE_V) {
+            uint64_t *src_pmd = (uint64_t *)PA_TO_VA((src_pgd[i] >> 10) << 12);
+            uint64_t *dst_pmd = (uint64_t *)kmalloc(PAGE_SIZE);
+            memset(dst_pmd, 0, PAGE_SIZE);
+            dst_pgd[i] = (PFN_DOWN(VA_TO_PA((uint64_t)dst_pmd)) << 10) | PTE_V;
+
+            for (int j = 0; j < 512; j++) {
+                if (src_pmd[j] & PTE_V) {
+                    uint64_t *src_pte = (uint64_t *)PA_TO_VA((src_pmd[j] >> 10) << 12);
+                    uint64_t *dst_pte = (uint64_t *)kmalloc(PAGE_SIZE);
+                    memset(dst_pte, 0, PAGE_SIZE);
+                    dst_pmd[j] = (PFN_DOWN(VA_TO_PA((uint64_t)dst_pte)) << 10) | PTE_V;
+
+                    for (int k = 0; k < 512; k++) {
+                        if (src_pte[k] & PTE_V) {
+                            uint64_t pa = (src_pte[k] >> 10) << 12;
+                            uint64_t prot = src_pte[k] & 0x3FF;
+
+                            void *new_page = kmalloc(PAGE_SIZE);
+                            memcpy(new_page, (void *)PA_TO_VA(pa), PAGE_SIZE);
+
+                            dst_pte[k] = (PFN_DOWN(VA_TO_PA((uint64_t)new_page)) << 10) | prot;
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+static uint64_t get_physical_address(uint64_t *pgd, uint64_t va) {
+    int vpn2 = (va >> 30) & 0x1FF;
+    if ((pgd[vpn2] & PTE_V) == 0) return 0;
+    uint64_t *pmd = (uint64_t *)PA_TO_VA((pgd[vpn2] >> 10) << 12);
+
+    int vpn1 = (va >> 21) & 0x1FF;
+    if ((pmd[vpn1] & PTE_V) == 0) return 0;
+    uint64_t *pte = (uint64_t *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
+
+    int vpn0 = (va >> 12) & 0x1FF;
+    if ((pte[vpn0] & PTE_V) == 0) return 0;
+
+    return (pte[vpn0] >> 10) << 12;
 }
 
 void fork_ecall_helper(struct pt_regs* regs){
@@ -112,26 +195,26 @@ void fork_ecall_helper(struct pt_regs* regs){
     child->pid = nr_threads++; 
     child->status = READY;
 
-    child->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
-    child->user_stack = (unsigned long)kmalloc(USER_STACK_SIZE);
-    memcpy((void*)child->kernel_stack, (void*)parent->kernel_stack, KERNEL_STACK_SIZE);
-    memcpy((void*)child->user_stack, (void*)parent->user_stack, USER_STACK_SIZE);
-    child->kernel_sp = child->kernel_stack + KERNEL_STACK_SIZE;
-    child->user_sp = child->user_stack + USER_STACK_SIZE;
+    child->pgd = (uint64_t*)kmalloc(PAGE_SIZE);
+    memset(child->pgd, 0, PAGE_SIZE);
+    memcpy(&child->pgd[256], &parent->pgd[256], 256 * sizeof(uint64_t));
+    copy_user_page_tables(child->pgd, parent->pgd);
 
-    struct pt_regs *child_regs = (struct pt_regs *)(child->kernel_sp - sizeof(struct pt_regs));
+    uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
+    uint64_t child_stack_pa = get_physical_address(child->pgd, stack_va);
+    child->user_stack = PA_TO_VA(child_stack_pa);
+
+    child->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
+    memcpy((void*)child->kernel_stack, (void*)parent->kernel_stack, KERNEL_STACK_SIZE);
+    child->kernel_sp = child->kernel_stack + KERNEL_STACK_SIZE;
+
+    unsigned long stack_offset = (unsigned long)regs - parent->kernel_stack;
+    struct pt_regs *child_regs = (struct pt_regs *)(child->kernel_stack + stack_offset);
 
     regs->a0 = child->pid;
     child_regs->a0 = 0;
+    
     child_regs->tp = (uint64_t)child;
-    child_regs->sepc += 4;
-
-    unsigned long offset = child->user_stack - parent->user_stack;
-    child_regs->sp = child_regs->sp + offset;
-    if (child_regs->s0 >= parent->user_stack && child_regs->s0 < parent->user_stack + USER_STACK_SIZE) {
-        child_regs->s0 = child_regs->s0 + offset;
-    }
-
     child->thread.ra = (unsigned long)ret_from_exception;
     child->thread.sp = (unsigned long)child_regs;
 
@@ -141,6 +224,8 @@ void fork_ecall_helper(struct pt_regs* regs){
     enqueue(&run_queue, child);
 
     regs->sepc += 4;
+    child_regs->sepc += 4; 
+    
     return;
 }
 

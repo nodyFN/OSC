@@ -195,3 +195,30 @@ void* get_file_address(const void* initrd_start, const void* initrd_end, const c
     }
     return 0;
 }
+
+uint32_t get_file_size(const void* initrd_start, const void* initrd_end, const char* target_filename){
+    char* current = (char*)initrd_start;
+
+    while(1) { 
+        struct cpio_newc_header* header = (struct cpio_newc_header*)current;
+        if(strncmp(header->c_magic, CPIO_NEWC_MAGIC, 6) != 0){
+            return 0;
+        }
+
+        uint32_t namesize = _string_to_hex32_helper(header->c_namesize);
+        uint32_t filesize = _string_to_hex32_helper(header->c_filesize);
+
+        char* filename = current + sizeof(struct cpio_newc_header);
+        if(strncmp(filename, CPIO_NEWC_END, sizeof(CPIO_NEWC_END) - 1) == 0){
+            break;
+        }
+
+        if(strcmp(target_filename, filename) == 0){
+            return filesize;
+        }
+
+        uint32_t offset = ALIGN4(ALIGN4(sizeof(struct cpio_newc_header) + namesize) + filesize);
+        current += offset;
+    }
+    return 0;
+}

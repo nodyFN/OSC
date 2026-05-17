@@ -5,6 +5,7 @@
 
 #define KERNEL_STACK_SIZE 0x8000
 #define USER_STACK_SIZE 0x8000
+#define USER_STACK_VA 0x003ffffff000
 
 enum TASK_STATUS{
     RUNNING, READY, TERMINATED, WAITING
@@ -33,6 +34,8 @@ struct task_struct {
     int is_handling_signal;
     struct pt_regs signal_saved_regs;
     uint64_t signal_stack_page;
+
+    uint64_t* pgd;
 }; 
 
 struct task_struct* kthread_create(void (*threadfn)());
@@ -44,6 +47,6 @@ void kill_zombies();
 struct task_struct* get_current();
 void enqueue(struct task_struct** queue, struct task_struct* task);
 
-struct task_struct* user_process_create(void (*user_func)());
+struct task_struct* user_process_create(const char* filename);
 
 #endif

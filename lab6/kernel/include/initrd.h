@@ -30,5 +30,6 @@ uint32_t _string_to_hex32_helper(const char* str);
 int get_initrd_info(const void* dtb_addr, uint64_t* initrd_start_addr, uint64_t* initrd_end_addr);
 void initrd_exec(const void* initrd_start, const void* initrd_end, const char* run_filename);
 void* get_file_address(const void* initrd_start, const void* initrd_end, const char* target_filename);
+uint32_t get_file_size(const void* initrd_start, const void* initrd_end, const char* target_filename);
 
 #endif

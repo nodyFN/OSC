@@ -48,7 +48,7 @@ void setup_finer_granularity_paging(){
         }else {
             prot = PROT_MMIO;
         }
-        map_pages(PA_TO_VA(pa), PAGE_SIZE, pa, prot);
+        map_pages(kernel_info.new_pgd, PA_TO_VA(pa), PAGE_SIZE, pa, prot);
     }
 
     unsigned long satp = MAKE_SATP(VA_TO_PA((unsigned long)kernel_info.new_pgd));
@@ -57,8 +57,8 @@ void setup_finer_granularity_paging(){
     __asm__ volatile("sfence.vma");
 }
 
-static void pagewalk(unsigned long va, unsigned long pa, unsigned long prot) {
-    unsigned long *table = kernel_info.new_pgd;
+static void pagewalk(uint64_t *pgd, unsigned long va, unsigned long pa, unsigned long prot) {
+    unsigned long *table = pgd;
 
     int vpn2 = (va >> 30) & 0x1FF;
     
@@ -88,8 +88,8 @@ static void pagewalk(unsigned long va, unsigned long pa, unsigned long prot) {
     table[vpn0] = (PFN_DOWN(pa) << 10) | prot;
 }
 
-void map_pages(unsigned long va, unsigned long size, unsigned long pa, unsigned long prot) {
+void map_pages(uint64_t *pgd, unsigned long va, unsigned long size, unsigned long pa, unsigned long prot) {
     for (int i = 0; i < size; i += PAGE_SIZE){
-        pagewalk(va + i, pa + i, prot);
+        pagewalk(pgd, va + i, pa + i, prot);
     }  
 }
