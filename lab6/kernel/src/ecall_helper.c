@@ -129,22 +129,14 @@ void exec_ecall_helper(struct pt_regs* regs){
     memcpy(&new_pgd[256], &kernel_info.new_pgd[256], 256 * sizeof(uint64_t));
 
     uint64_t num_code_pages = (file_size + PAGE_SIZE - 1) / PAGE_SIZE;
-    // void* new_code_va = kmalloc(num_code_pages * PAGE_SIZE);
-    // memset(new_code_va, 0, num_code_pages * PAGE_SIZE);
-    // memcpy(new_code_va, file_content, file_size);
-    // map_pages(new_pgd, 0x0, num_code_pages * PAGE_SIZE, VA_TO_PA((uint64_t)new_code_va), PROT_CODE);
     struct vma_struct* new_vma = add_vma(current, 0x0, num_code_pages * PAGE_SIZE, PROT_CODE, 0);
     new_vma->file_content = file_content;
     new_vma->filesize = file_size;
 
-    // void* new_stack_va = kmalloc(USER_STACK_SIZE);
-    // memset(new_stack_va, 0, USER_STACK_SIZE);  
     uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
-    // map_pages(new_pgd, stack_va, USER_STACK_SIZE, VA_TO_PA((uint64_t)new_stack_va), PROT_STACK);
     add_vma(current, stack_va, USER_STACK_VA, PROT_STACK, 0);
 
-    current->pgd = new_pgd;
-    // current->user_stack = (uint64_t)new_stack_va; 
+    current->pgd = new_pgd; 
     current->user_sp = USER_STACK_VA;
 
     uint64_t next_satp = MAKE_SATP(VA_TO_PA((uint64_t)current->pgd));
@@ -178,32 +170,19 @@ static void copy_user_page_tables(uint64_t *dst_pgd, uint64_t *src_pgd) {
                         if (src_pte[k] & PTE_V) {
                             uint64_t pa = (src_pte[k] >> 10) << 12;
                             uint64_t prot = src_pte[k] & 0x3FF;
+                            if (prot & PTE_W) {
+                                prot &= ~PTE_W;
+                            }
+                            src_pte[k] = (PFN_DOWN(pa) << 10) | prot; 
+                            dst_pte[k] = src_pte[k];
 
-                            void *new_page = kmalloc(PAGE_SIZE);
-                            memcpy(new_page, (void *)PA_TO_VA(pa), PAGE_SIZE);
-
-                            dst_pte[k] = (PFN_DOWN(VA_TO_PA((uint64_t)new_page)) << 10) | prot;
+                            phys_to_page(pa)->reference_count++;
                         }
                     }
                 }
             }
         }
     }
-}
-
-static uint64_t get_physical_address(uint64_t *pgd, uint64_t va) {
-    int vpn2 = (va >> 30) & 0x1FF;
-    if ((pgd[vpn2] & PTE_V) == 0) return 0;
-    uint64_t *pmd = (uint64_t *)PA_TO_VA((pgd[vpn2] >> 10) << 12);
-
-    int vpn1 = (va >> 21) & 0x1FF;
-    if ((pmd[vpn1] & PTE_V) == 0) return 0;
-    uint64_t *pte = (uint64_t *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
-
-    int vpn0 = (va >> 12) & 0x1FF;
-    if ((pte[vpn0] & PTE_V) == 0) return 0;
-
-    return (pte[vpn0] >> 10) << 12;
 }
 
 void fork_ecall_helper(struct pt_regs* regs){
@@ -224,6 +203,8 @@ void fork_ecall_helper(struct pt_regs* regs){
     memcpy(&child->pgd[256], &parent->pgd[256], 256 * sizeof(uint64_t));
     copy_user_page_tables(child->pgd, parent->pgd);
 
+    asm volatile("sfence.vma");
+
     INIT_LIST_HEAD(&child->vma_list);
     struct list_head *pos;
     struct vma_struct *parent_vma;
@@ -234,10 +215,6 @@ void fork_ecall_helper(struct pt_regs* regs){
         child_vma->file_content = parent_vma->file_content;
         child_vma->filesize = parent_vma->filesize;
     }
-
-    // uint64_t stack_va = USER_STACK_VA - USER_STACK_SIZE;
-    // uint64_t child_stack_pa = get_physical_address(child->pgd, stack_va);
-    // child->user_stack = PA_TO_VA(child_stack_pa);
 
     child->kernel_stack = (unsigned long)kmalloc(KERNEL_STACK_SIZE);
     memcpy((void*)child->kernel_stack, (void*)parent->kernel_stack, KERNEL_STACK_SIZE);
@@ -519,18 +496,18 @@ void mmap_ecall_helper(struct pt_regs* regs){
     if (prot & 2) pte_flags |= PTE_W;
     if (prot & 4) pte_flags |= PTE_X;
 
-    // void* vma_va = kmalloc(aligned_length);
-    // if (vma_va == NULL) {
-    //     regs->a0 = -1;
-    //     regs->sepc += 4;
-    //     return;
-    // }
-    // memset(vma_va, 0, aligned_length);
-
-    // map_pages(current->pgd, mapping_addr, aligned_length, VA_TO_PA((uint64_t)vma_va), pte_flags);
     add_vma(current, mapping_addr, mapping_addr + aligned_length, pte_flags, flags);
 
-    // asm volatile("sfence.vma");
+    if (flags & 0x8000) {
+        for (uint64_t offset = 0; offset < aligned_length; offset += PAGE_SIZE) {
+            void* physical_page = kmalloc(PAGE_SIZE);
+            if (physical_page != NULL) {
+                memset(physical_page, 0, PAGE_SIZE);
+                map_pages(current->pgd, mapping_addr + offset, PAGE_SIZE, VA_TO_PA((uint64_t)physical_page), pte_flags);
+            }
+        }
+        asm volatile("sfence.vma");
+    }
 
     regs->a0 = mapping_addr;
     regs->sepc += 4;

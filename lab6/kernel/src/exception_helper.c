@@ -24,6 +24,21 @@ void ecall_exception_helper(struct pt_regs* regs){
     ecall_helper_list[regs->a7](regs);
 }
 
+static uint64_t get_physical_address(uint64_t *pgd, uint64_t va) {
+    int vpn2 = (va >> 30) & 0x1FF;
+    if ((pgd[vpn2] & PTE_V) == 0) return 0;
+    uint64_t *pmd = (uint64_t *)PA_TO_VA((pgd[vpn2] >> 10) << 12);
+
+    int vpn1 = (va >> 21) & 0x1FF;
+    if ((pmd[vpn1] & PTE_V) == 0) return 0;
+    uint64_t *pte = (uint64_t *)PA_TO_VA((pmd[vpn1] >> 10) << 12);
+
+    int vpn0 = (va >> 12) & 0x1FF;
+    if ((pte[vpn0] & PTE_V) == 0) return 0;
+
+    return (pte[vpn0] >> 10) << 12;
+}
+
 static void do_page_fault(struct pt_regs* regs, int required_prot) {
     uint64_t fault_addr = regs->stval;
     struct task_struct *current = get_current();
@@ -42,50 +57,63 @@ static void do_page_fault(struct pt_regs* regs, int required_prot) {
     if (vma == NULL || (vma->prot & required_prot) == 0) {
         printf("[Segmentation fault]: Kill Process\n");
         thread_exit();
-    }else{
-        printf("[Translation fault]: %lx\n", fault_addr);
     }
 
     uint64_t page_start = fault_addr & ~(PAGE_SIZE - 1);
-    void* physical_page = kmalloc(PAGE_SIZE);
-    
-    if (physical_page == NULL) {
-        printf("[Error] OOM during Page Fault\n");
-        thread_exit();
-    }
-    memset(physical_page, 0, PAGE_SIZE);
 
-    if (vma->file_content != NULL) {
-        uint64_t offset = page_start - vma->start_address;
+    uint64_t existing_pa = get_physical_address(current->pgd, page_start);
 
-        if (offset < vma->filesize) {
-            uint64_t copy_size = PAGE_SIZE;
-            if (offset + PAGE_SIZE > vma->filesize) {
-                copy_size = vma->filesize - offset;
-            }
-            memcpy(physical_page, (void*)((uint64_t)vma->file_content + offset), copy_size);
+    if(existing_pa == 0){
+        printf("[Translation fault]: %lx\n", fault_addr);
+        void* physical_page = kmalloc(PAGE_SIZE);
+        if (physical_page == NULL) {
+            printf("[Error] OOM during Page Fault\n");
+            thread_exit();
         }
-    }
+        memset(physical_page, 0, PAGE_SIZE);
 
-    map_pages(current->pgd, page_start, PAGE_SIZE, VA_TO_PA((uint64_t)physical_page), vma->prot);
+        if (vma->file_content != NULL) {
+            uint64_t offset = page_start - vma->start_address;
+
+            if (offset < vma->filesize) {
+                uint64_t copy_size = PAGE_SIZE;
+                if (offset + PAGE_SIZE > vma->filesize) {
+                    copy_size = vma->filesize - offset;
+                }
+                memcpy(physical_page, (void*)((uint64_t)vma->file_content + offset), copy_size);
+            }
+        }
+
+        map_pages(current->pgd, page_start, PAGE_SIZE, VA_TO_PA((uint64_t)physical_page), vma->prot);
+    }else{
+        printf("[Permission fault]: %lx\n", fault_addr);
+
+        void* new_page = kmalloc(PAGE_SIZE);
+        if (new_page == NULL) {
+            printf("[Error] OOM during CoW\n");
+            thread_exit();
+        }
+        memcpy((void*)PA_TO_VA((uint64_t)new_page), (void*)PA_TO_VA(existing_pa), PAGE_SIZE);
+
+        kfree((void*)existing_pa);
+
+        map_pages(current->pgd, page_start, PAGE_SIZE, VA_TO_PA((uint64_t)new_page), vma->prot);
+    }
 
     asm volatile("sfence.vma");
 }
 
 void instruction_page_fault_helper(struct pt_regs* regs){
-    // printf("instruction_page_fault_helper\n");
     // scause 12
     do_page_fault(regs, PTE_X);
 }
 
 void load_page_fault_helper(struct pt_regs* regs){
-    // printf("load_page_fault_helper\n");
     // scause 13
     do_page_fault(regs, PTE_R);
 }
 
 void store_amo_page_fault_helper(struct pt_regs* regs){
-    // printf("store_amo_page_fault_helper\n");
     // scuase 15
     do_page_fault(regs, PTE_W);
 }

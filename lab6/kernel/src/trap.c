@@ -27,7 +27,7 @@ void check_signals(struct pt_regs *regs) {
                 current->signal_stack_page = (uint64_t)kmalloc(PAGE_SIZE);
                 memset((void*)current->signal_stack_page, 0, PAGE_SIZE);
 
-                size_t stub_size = sigreturn_stub_end - sigreturn_stub;
+                size_t stub_size = (uint64_t)sigreturn_stub_end - (uint64_t)sigreturn_stub;
                 uint64_t kva_trampoline = current->signal_stack_page + PAGE_SIZE - stub_size;
                 memcpy((void*)kva_trampoline, sigreturn_stub, stub_size);
                 
@@ -38,9 +38,9 @@ void check_signals(struct pt_regs *regs) {
                 uint64_t uva_trampoline = USER_SIGNAL_STACK_VA + PAGE_SIZE - stub_size;
                 
                 regs->ra = uva_trampoline;
-                regs->sp = uva_trampoline;
+                regs->sp = uva_trampoline & ~0xF; 
                 regs->sepc = current->signal_handler[i];
-                
+
                 break;
             }
         }
@@ -65,16 +65,6 @@ void do_trap(struct pt_regs* regs){
     }else{
         extern void (*exception_helper_list[256])(struct pt_regs*);
         exception_helper_list[regs->scause](regs);
-        // if(regs->scause == 8){
-        //     ecall_helper_list[regs->a7](regs);
-        // }else {
-        //     printf("\n[Kernel Panic] Unhandled Exception!\n");
-        //     printf("PID: %d, scause: 0x%lx, sepc: 0x%lx, stval: 0x%lx\n", 
-        //             get_current()->pid, regs->scause, regs->sepc, regs->stval);
-        //     printf("Killing the crashing thread...\n");
-        //     thread_exit();
-        //     return;
-        // }
     }
     check_signals(regs);
 

@@ -17,6 +17,8 @@ struct page {
     void *freelist;
     int pool_size;   // 0 for buddy system page
     int free_count;
+
+    int reference_count;
 };
 
 void mm_init(void *dtb);
@@ -24,6 +26,7 @@ void mm_init(void *dtb);
 struct page *alloc_pages(int order);
 void free_pages(struct page *page, int order);
 uint64_t page_to_phys(struct page *page);
+struct page *phys_to_page(uint64_t phys);
 
 void *kmalloc(size_t size);
 void kfree(void *ptr);

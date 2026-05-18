@@ -50,6 +50,7 @@ struct page *alloc_pages(int order) {
         list_del(&page->list);
         page->allocated = 1;
         page->order = order;
+        page->reference_count = 1;
         while (i > order) {
             i--;
             uint64_t buddy_pfn = page->pfn + (1 << i);
@@ -70,6 +71,12 @@ struct page *alloc_pages(int order) {
 
 void free_pages(struct page *page, int order) {
     if (!page) return;
+
+    page->reference_count--;
+    if (page->reference_count > 0) {
+        return;
+    }
+
     if(print_log) printf("[Page] Free Page at %lx, order %d\n", page_to_phys(page), order);
     page->allocated = 0;
     while (order < MAX_ORDER) {
@@ -171,6 +178,7 @@ void mm_init(void *dtb) {
         mem_map[i].pfn = i;
         mem_map[i].allocated = 1;
         mem_map[i].order = 0;
+        mem_map[i].reference_count = 0;
     }
     
     memory_reserve(phys_mem_start, kernel_end); 
