@@ -175,8 +175,19 @@ static void copy_user_page_tables(uint64_t *dst_pgd, uint64_t *src_pgd) {
                             }
                             src_pte[k] = (PFN_DOWN(pa) << 10) | prot; 
                             dst_pte[k] = src_pte[k];
-
-                            phys_to_page(pa)->reference_count++;
+                            
+                            struct page *pp = phys_to_page(pa);
+                            if (pp != NULL) {
+                                if (prot & PTE_W) {
+                                    prot &= ~PTE_W;
+                                }
+                                src_pte[k] = (PFN_DOWN(pa) << 10) | prot; 
+                                dst_pte[k] = src_pte[k];
+                                
+                                pp->reference_count++;
+                            } else {
+                                dst_pte[k] = src_pte[k];
+                            }
                         }
                     }
                 }
