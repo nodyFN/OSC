@@ -4,6 +4,7 @@
 #include "string.h"
 #include "stdio.h"
 #include "mm.h"
+#include "vm.h"
 
 #include <stddef.h>
 
@@ -448,7 +449,9 @@ int fdt_reserve_memory(void *dtb) {
 
                 printf("[Reserve] /reserved-memory chunk: 0x%lx - 0x%lx (Size: 0x%lx bytes)\n", start, start + size, size);
                 
-                memory_reserve(start, start + size);
+                // memory_reserve(start, start + size);
+                uint64_t va_start = PA_TO_VA(start);
+                memory_reserve(va_start, va_start + size);
             }
 
             int padded_len = (prop_len + 3) & ~3;
