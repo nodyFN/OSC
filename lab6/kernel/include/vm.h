@@ -32,7 +32,8 @@
 #define PROT_KERNEL  (PTE_V | PTE_R | PTE_W | PTE_X | PTE_G | PTE_A | PTE_D)
 #define PROT_MMIO   (PTE_V | PTE_R | PTE_W | PTE_G | PTE_A | PTE_D)
 #define PROT_CODE   (PTE_U | PTE_R | PTE_W | PTE_X | PTE_V | PTE_A | PTE_D)
-#define PROT_STACK  (PTE_U | PTE_R | PTE_W | PTE_X | PTE_V | PTE_A | PTE_D)
+#define PROT_TRAMPOLINE_CODE (PTE_U | PTE_R | PTE_X | PTE_V | PTE_A | PTE_D)
+#define PROT_STACK  (PTE_U | PTE_R | PTE_W | PTE_V | PTE_A | PTE_D)
 #define PROT_SIG_STACK (PTE_V | PTE_R | PTE_W | PTE_X | PTE_U | PTE_A | PTE_D)
 
 #define SATP_SV39           (8UL << 60)

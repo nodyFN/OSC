@@ -27,18 +27,25 @@ void check_signals(struct pt_regs *regs) {
                 current->signal_stack_page = (uint64_t)kmalloc(PAGE_SIZE);
                 memset((void*)current->signal_stack_page, 0, PAGE_SIZE);
 
-                size_t stub_size = (uint64_t)sigreturn_stub_end - (uint64_t)sigreturn_stub;
-                uint64_t kva_trampoline = current->signal_stack_page + PAGE_SIZE - stub_size;
-                memcpy((void*)kva_trampoline, sigreturn_stub, stub_size);
+                map_pages(current->pgd, USER_SIGNAL_STACK_VA, PAGE_SIZE, VA_TO_PA(current->signal_stack_page), PROT_STACK);
                 
+                add_vma(current, USER_SIGNAL_STACK_VA, USER_SIGNAL_STACK_VA + PAGE_SIZE, PROT_STACK, 0);
+                current->trampoline_code_page = (uint64_t)kmalloc(PAGE_SIZE);
+                memset((void*)current->trampoline_code_page, 0, PAGE_SIZE);
+
+                extern char sigreturn_stub[];
+                extern char sigreturn_stub_end[];
+                size_t stub_size = (uint64_t)sigreturn_stub_end - (uint64_t)sigreturn_stub;
+                
+                memcpy((void*)current->trampoline_code_page, sigreturn_stub, stub_size);
                 __asm__ volatile("fence.i");
 
-                map_pages(current->pgd, USER_SIGNAL_STACK_VA, PAGE_SIZE, VA_TO_PA(current->signal_stack_page), PROT_SIG_STACK);
+                map_pages(current->pgd, USER_TRAMPOLINE_VA, PAGE_SIZE, VA_TO_PA(current->trampoline_code_page), PROT_TRAMPOLINE_CODE);
+                add_vma(current, USER_TRAMPOLINE_VA, USER_TRAMPOLINE_VA + PAGE_SIZE, PROT_TRAMPOLINE_CODE, 0);
+
                 __asm__ volatile("sfence.vma");
-                uint64_t uva_trampoline = USER_SIGNAL_STACK_VA + PAGE_SIZE - stub_size;
-                
-                regs->ra = uva_trampoline;
-                regs->sp = uva_trampoline & ~0xF; 
+                regs->ra = USER_TRAMPOLINE_VA; 
+                regs->sp = (USER_SIGNAL_STACK_VA + PAGE_SIZE) & ~0xF;               
                 regs->sepc = current->signal_handler[i];
 
                 break;

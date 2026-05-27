@@ -117,11 +117,35 @@ void kill_zombies(){
     while(current != run_queue){
         if(current->status == TERMINATED){
             prev->next = current->next;
-            kfree((void*)current->kernel_stack);           
+            if (current->kernel_stack != 0) {
+                kfree((void*)current->kernel_stack);           
+            }
+
             if (current->user_stack != 0) {
                 kfree((void*)current->user_stack);
             }
+
+            if (current->signal_stack_page != 0) {
+                kfree((void*)current->signal_stack_page);
+            }
+            if (current->trampoline_code_page != 0) {
+                kfree((void*)current->trampoline_code_page);
+            }
+
+            struct list_head *pos, *n;
+            struct vma_struct *vma;
+            list_for_each_safe(pos, n, &current->vma_list) {
+                vma = list_entry(pos, struct vma_struct, list);
+                list_del(pos);
+                
+                kfree(vma);
+            }
+
+            if (current->pgd != NULL) {
+                kfree((void*)current->pgd);
+            }
             kfree(current);
+            
             current = prev->next;
         }else{
             prev = current;

@@ -7,6 +7,7 @@
 #define KERNEL_STACK_SIZE 0x8000
 #define USER_STACK_SIZE 0x8000
 #define USER_STACK_VA 0x004000000000
+#define USER_TRAMPOLINE_VA 0x3FFFFFE000
 
 enum TASK_STATUS{
     RUNNING, READY, TERMINATED, WAITING
@@ -45,6 +46,7 @@ struct task_struct {
     int is_handling_signal;
     struct pt_regs signal_saved_regs;
     uint64_t signal_stack_page;
+    uint64_t trampoline_code_page;
 
     uint64_t* pgd;
     struct list_head vma_list;
