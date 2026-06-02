@@ -15,6 +15,7 @@
 #include "video.h"
 #include "vm.h"
 #include "exception_helper.h"
+#include "vfs.h"
 
 struct KernelInfo kernel_info;
 
@@ -47,6 +48,7 @@ void main(uint64_t hartid, void *dtb) {
     exception_helper_commit();
     ecall_helper_commit();
     video_init();
+    vfs_init();
 
     asm volatile("move tp, %0" : : "r"(kthread_create(thread_idle)));
     // kthread_create(test_kernel_shell);
