@@ -3,6 +3,7 @@
 #include "mm.h"
 #include "string.h"
 #include "thread.h"
+#include "ramfs.h"
 
 struct mount* rootfs;
 struct filesystem* registered_fs[10];
@@ -22,6 +23,13 @@ void vfs_init() {
 
     rootfs = kmalloc(sizeof(struct mount));
     tmpfs->setup_mount(tmpfs, rootfs);
+
+    struct filesystem *ramfs = kmalloc(sizeof(struct filesystem));
+    ramfs->name = "ramfs";
+    ramfs->setup_mount = ramfs_setup_mount;
+    register_filesystem(ramfs);
+    vfs_mkdir("/ramfs");
+    vfs_mount("/ramfs", "ramfs");
 }
 
 static int get_parent_and_basename(const char* pathname, struct vnode** parent, char* basename) {
@@ -106,11 +114,17 @@ int vfs_read(struct file* file, void* buf, size_t len) {
 }
 
 int vfs_lookup(const char* pathname, struct vnode** target) {
-    struct task_struct* curr_task = get_current();
-    struct vnode* curr = curr_task->curr_dir;
+    struct vnode* curr = NULL;
 
     if (pathname[0] == '/') {
         curr = rootfs->root;
+    } else {
+        struct task_struct* curr_task = get_current();
+        if (curr_task != NULL && curr_task->curr_dir != NULL) {
+            curr = curr_task->curr_dir;
+        } else {
+            curr = rootfs->root;
+        }
     }
 
     const char* p = pathname;
