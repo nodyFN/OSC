@@ -27,6 +27,7 @@ struct vnode {
     struct vnode_operations* v_ops;
     struct file_operations* f_ops;
     void* internal;
+    struct vnode* parent;
 };
 
 struct file {

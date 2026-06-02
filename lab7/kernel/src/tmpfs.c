@@ -48,6 +48,7 @@ struct vnode* tmpfs_create_vnode(enum tmpfs_node_type type, const char* name) {
 int tmpfs_setup_mount(struct filesystem* fs, struct mount* mount) {
     mount->fs = fs;
     mount->root = tmpfs_create_vnode(TMPFS_TYPE_DIR, "/");
+    mount->root->parent = mount->root;
     return 0;
 }
 
@@ -78,6 +79,8 @@ int tmpfs_create(struct vnode* dir_node, struct vnode** target, const char* comp
     
     struct vnode *new_node = tmpfs_create_vnode(TMPFS_TYPE_FILE, component_name);
     
+    new_node->parent = dir_node;
+
     dir->entries[dir->nr_entries++] = new_node;
     *target = new_node;
     
@@ -96,6 +99,8 @@ int tmpfs_mkdir(struct vnode* dir_node, struct vnode** target, const char* compo
     
     struct vnode *new_node = tmpfs_create_vnode(TMPFS_TYPE_DIR, component_name);
     
+    new_node->parent = dir_node;
+
     dir->entries[dir->nr_entries++] = new_node;
     *target = new_node;
     return 0;

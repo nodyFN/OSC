@@ -17,6 +17,13 @@ void signal_ecall_helper(struct pt_regs* regs);
 void sigreturn_ecall_helper(struct pt_regs* regs);
 void kill_ecall_helper(struct pt_regs* regs);
 void mmap_ecall_helper(struct pt_regs* regs);
+void open_ecall_helper(struct pt_regs* regs);
+void close_ecall_helper(struct pt_regs* regs);
+void read_ecall_helper(struct pt_regs* regs);
+void write_ecall_helper(struct pt_regs* regs);
+void mkdir_ecall_helper(struct pt_regs* regs);
+void mount_ecall_helper(struct pt_regs* regs);
+void chdir_ecall_helper(struct pt_regs* regs);
 
 void unknown_ecall_helper(struct pt_regs* regs);
 

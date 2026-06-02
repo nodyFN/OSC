@@ -54,7 +54,7 @@ void main(uint64_t hartid, void *dtb) {
     // kthread_create(test_kernel_shell);
     // for (int i = 0; i < 3; i++)
     //     kthread_create(thread_foo);
-    user_process_create("osctest.bin");
+    user_process_create("osctest_vfs.bin");
     irq_enable();
     thread_idle();
 

@@ -2,6 +2,7 @@
 #include "tmpfs.h"
 #include "mm.h"
 #include "string.h"
+#include "thread.h"
 
 struct mount* rootfs;
 struct filesystem* registered_fs[10];
@@ -105,22 +106,18 @@ int vfs_read(struct file* file, void* buf, size_t len) {
 }
 
 int vfs_lookup(const char* pathname, struct vnode** target) {
-    struct vnode* curr = rootfs->root;
-    const char* p = pathname;
-    
-    if (strcmp(pathname, "/") == 0) {
-        if (curr->mount) curr = curr->mount->root;
-        *target = curr;
-        return 0;
+    struct task_struct* curr_task = get_current();
+    struct vnode* curr = curr_task->curr_dir;
+
+    if (pathname[0] == '/') {
+        curr = rootfs->root;
     }
-    
-    if (*p == '/') p++;
-    
+
+    const char* p = pathname;
     while (*p) {
-        if (curr->mount) {
-            curr = curr->mount->root;
-        }
-        
+        while (*p == '/') p++;
+        if (*p == '\0') break;
+
         char comp[16] = {0};
         int i = 0;
         while (*p && *p != '/') {
@@ -128,22 +125,31 @@ int vfs_lookup(const char* pathname, struct vnode** target) {
             p++;
         }
         comp[i] = '\0';
-        
-        while (*p == '/') p++; 
-        
-        if (comp[0] == '\0') break;
+
+        if (strcmp(comp, ".") == 0) {
+            continue;
+        } else if (strcmp(comp, "..") == 0) {
+            if (curr->parent) {
+                curr = curr->parent;
+            }
+            continue;
+        }
+
+        if (curr->mount) {
+            curr = curr->mount->root;
+        }
         
         struct vnode* next_node;
         int res = curr->v_ops->lookup(curr, &next_node, comp);
         if (res != 0) return res;
-        
+
         curr = next_node;
     }
-    
+
     if (curr->mount) {
         curr = curr->mount->root;
     }
-    
+
     *target = curr;
     return 0;
 }
@@ -174,14 +180,22 @@ int vfs_mount(const char* target, const char* filesystem) {
     if (!fs) return -1;
     
     struct mount* mnt = kmalloc(sizeof(struct mount));
-    if (!mnt) return -1;
-    
     res = fs->setup_mount(fs, mnt);
     if (res != 0) {
         kfree(mnt);
         return res;
     }
     
+    mnt->root->parent = target_node->parent; 
     target_node->mount = mnt;
     return 0;
+}
+
+int sys_chdir(const char *path) {
+    struct vnode* target;
+    int res = vfs_lookup(path, &target);
+    if (res == 0) {
+        get_current()->curr_dir = target;
+    }
+    return res;
 }

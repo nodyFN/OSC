@@ -3,11 +3,14 @@
 
 #include "trap.h"
 #include "list.h"
+#include "vfs.h"
 
 #define KERNEL_STACK_SIZE 0x8000
 #define USER_STACK_SIZE 0x8000
 #define USER_STACK_VA 0x004000000000
 #define USER_TRAMPOLINE_VA 0x3FFFFFE000
+
+#define MAX_FD 16
 
 enum TASK_STATUS{
     RUNNING, READY, TERMINATED, WAITING
@@ -50,6 +53,9 @@ struct task_struct {
 
     uint64_t* pgd;
     struct list_head vma_list;
+
+    struct vnode* curr_dir;
+    struct file* fd_table[MAX_FD];
 }; 
 
 struct task_struct* kthread_create(void (*threadfn)());

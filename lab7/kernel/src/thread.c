@@ -7,6 +7,7 @@
 #include "vm.h"
 #include "initrd.h"
 #include "list.h"
+#include "vfs.h"
 
 int nr_threads = 0;
 struct task_struct* run_queue = 0;
@@ -216,7 +217,7 @@ struct task_struct* user_process_create(const char* filename){
     task->parent = run_queue;
     task->waiting_pid = -1;
 
-
+    task->curr_dir = rootfs->root;
 
     enqueue(&run_queue, task);
     return task;

@@ -10,6 +10,7 @@
 #include "video.h"
 #include "vm.h"
 #include "list.h"
+#include "vfs.h"
 
 extern struct KernelInfo kernel_info;
 extern int nr_threads;
@@ -36,6 +37,13 @@ void ecall_helper_commit(){
     ecall_helper_list[11] = sigreturn_ecall_helper;
     ecall_helper_list[12] = kill_ecall_helper;
     ecall_helper_list[13] = mmap_ecall_helper;
+    ecall_helper_list[14] = open_ecall_helper;
+    ecall_helper_list[15] = close_ecall_helper;
+    ecall_helper_list[16] = read_ecall_helper;
+    ecall_helper_list[17] = write_ecall_helper;
+    ecall_helper_list[18] = mkdir_ecall_helper;
+    ecall_helper_list[19] = mount_ecall_helper;
+    ecall_helper_list[20] = chdir_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -522,4 +530,128 @@ void mmap_ecall_helper(struct pt_regs* regs){
 
     regs->a0 = mapping_addr;
     regs->sepc += 4;
+}
+
+
+void open_ecall_helper(struct pt_regs* regs) {
+    // 14 open
+    const char* pathname = (const char*)regs->a0;
+    int flags = (int)regs->a1;
+    
+    struct task_struct* curr = get_current();
+    int fd = -1;
+
+    for (int i = 0; i < MAX_FD; i++) {
+        if (curr->fd_table[i] == NULL) {
+            fd = i;
+            break;
+        }
+    }
+    
+    if (fd == -1) {
+        regs->a0 = -1;
+    } else {
+        struct file* f;
+        int res = vfs_open(pathname, flags, &f);
+        if (res != 0) {
+            regs->a0 = res;
+        } else {
+            curr->fd_table[fd] = f;
+            regs->a0 = fd;
+        }
+    }
+    
+    regs->sepc += 4;
+    return;
+}
+
+
+void close_ecall_helper(struct pt_regs* regs) {
+    // 15 close
+    int fd = (int)regs->a0;
+    struct task_struct* curr = get_current();
+
+    if (fd < 0 || fd >= MAX_FD || curr->fd_table[fd] == NULL) {
+        regs->a0 = -1;
+    } else {
+        int res = vfs_close(curr->fd_table[fd]);
+        curr->fd_table[fd] = NULL;
+        regs->a0 = res;
+    }
+    
+    regs->sepc += 4;
+    return;
+}
+
+
+void read_ecall_helper(struct pt_regs* regs) {
+    // 16 read
+    int fd = (int)regs->a0;
+    void* buf = (void*)regs->a1;
+    size_t count = (size_t)regs->a2;
+    struct task_struct* curr = get_current();
+    
+    if (fd < 0 || fd >= MAX_FD || curr->fd_table[fd] == NULL) {
+        regs->a0 = -1;
+    } else {
+        regs->a0 = vfs_read(curr->fd_table[fd], buf, count);
+    }
+    
+    regs->sepc += 4;
+    return;
+}
+
+
+void write_ecall_helper(struct pt_regs* regs) {
+    // 17 write
+    int fd = (int)regs->a0;
+    const void* buf = (const void*)regs->a1;
+    size_t count = (size_t)regs->a2;
+    struct task_struct* curr = get_current();
+    
+    if (fd < 0 || fd >= MAX_FD || curr->fd_table[fd] == NULL) {
+        regs->a0 = -1;
+    } else {
+        regs->a0 = vfs_write(curr->fd_table[fd], buf, count);
+    }
+    
+    regs->sepc += 4;
+    return;
+}
+
+
+void mkdir_ecall_helper(struct pt_regs* regs) {
+    // 18 mkdir
+    const char* pathname = (const char*)regs->a0;
+    regs->a0 = vfs_mkdir(pathname);
+    
+    regs->sepc += 4;
+    return;
+}
+
+
+void mount_ecall_helper(struct pt_regs* regs) {
+    // 19 mount
+    const char* target = (const char*)regs->a1;
+    const char* filesystem = (const char*)regs->a2;
+    
+    regs->a0 = vfs_mount(target, filesystem);
+    
+    regs->sepc += 4;
+    return;
+}
+
+void chdir_ecall_helper(struct pt_regs* regs) {
+    // 20 chdir
+    const char* path = (const char*)regs->a0;
+    struct vnode* target_dir;
+
+    int res = vfs_lookup(path, &target_dir);
+    if (res == 0) {
+        get_current()->curr_dir = target_dir;
+    }
+    regs->a0 = res;
+    
+    regs->sepc += 4;
+    return;
 }
