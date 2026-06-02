@@ -56,4 +56,8 @@ int vfs_read(struct file* file, void* buf, size_t len);
 
 void vfs_init();
 
+int vfs_lookup(const char* pathname, struct vnode** target);
+int vfs_mkdir(const char* pathname);
+int vfs_mount(const char* target, const char* filesystem);
+
 #endif

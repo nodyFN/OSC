@@ -23,16 +23,47 @@ void vfs_init() {
     tmpfs->setup_mount(tmpfs, rootfs);
 }
 
+static int get_parent_and_basename(const char* pathname, struct vnode** parent, char* basename) {
+    char path_copy[256];
+    int len = strlen(pathname);
+    if (len >= 256) return -1;
+    memcpy(path_copy, pathname, len + 1);
+    
+    int last_slash = -1;
+    for (int i = len - 1; i >= 0; i--) {
+        if (path_copy[i] == '/') {
+            last_slash = i;
+            break;
+        }
+    }
+    
+    if (last_slash == -1) { 
+        *parent = rootfs->root;
+        memcpy(basename, pathname, len + 1);
+        return 0;
+    } else if (last_slash == 0) {
+        *parent = rootfs->root;
+        memcpy(basename, pathname + 1, len);
+        return 0;
+    } else {
+        path_copy[last_slash] = '\0';
+        memcpy(basename, pathname + last_slash + 1, len - last_slash);
+        return vfs_lookup(path_copy, parent);
+    }
+}
+
 int vfs_open(const char* pathname, int flags, struct file** target) {
     struct vnode* node;
-    const char *comp = pathname;
+    int res = vfs_lookup(pathname, &node);
     
-    if (comp[0] == '/') comp++;
-
-    int res = rootfs->root->v_ops->lookup(rootfs->root, &node, comp);
     if (res != 0) {
         if (flags & O_CREAT) {
-            res = rootfs->root->v_ops->create(rootfs->root, &node, comp);
+            struct vnode* parent;
+            char basename[16];
+            res = get_parent_and_basename(pathname, &parent, basename);
+            if (res != 0) return res;
+
+            res = parent->v_ops->create(parent, &node, basename);
             if (res != 0) return res;
         } else {
             return -1;
@@ -71,4 +102,86 @@ int vfs_write(struct file* file, const void* buf, size_t len) {
 int vfs_read(struct file* file, void* buf, size_t len) {
     if (!file) return -1;
     return file->f_ops->read(file, buf, len);
+}
+
+int vfs_lookup(const char* pathname, struct vnode** target) {
+    struct vnode* curr = rootfs->root;
+    const char* p = pathname;
+    
+    if (strcmp(pathname, "/") == 0) {
+        if (curr->mount) curr = curr->mount->root;
+        *target = curr;
+        return 0;
+    }
+    
+    if (*p == '/') p++;
+    
+    while (*p) {
+        if (curr->mount) {
+            curr = curr->mount->root;
+        }
+        
+        char comp[16] = {0};
+        int i = 0;
+        while (*p && *p != '/') {
+            if (i < 15) comp[i++] = *p;
+            p++;
+        }
+        comp[i] = '\0';
+        
+        while (*p == '/') p++; 
+        
+        if (comp[0] == '\0') break;
+        
+        struct vnode* next_node;
+        int res = curr->v_ops->lookup(curr, &next_node, comp);
+        if (res != 0) return res;
+        
+        curr = next_node;
+    }
+    
+    if (curr->mount) {
+        curr = curr->mount->root;
+    }
+    
+    *target = curr;
+    return 0;
+}
+
+int vfs_mkdir(const char* pathname) {
+    struct vnode* parent;
+    char basename[16];
+    
+    int res = get_parent_and_basename(pathname, &parent, basename);
+    if (res != 0) return res;
+    
+    struct vnode* new_dir;
+    return parent->v_ops->mkdir(parent, &new_dir, basename);
+}
+
+int vfs_mount(const char* target, const char* filesystem) {
+    struct vnode* target_node;
+    int res = vfs_lookup(target, &target_node);
+    if (res != 0) return res;
+    
+    struct filesystem* fs = NULL;
+    for (int i = 0; i < nr_fs; i++) {
+        if (strcmp(registered_fs[i]->name, filesystem) == 0) {
+            fs = registered_fs[i];
+            break;
+        }
+    }
+    if (!fs) return -1;
+    
+    struct mount* mnt = kmalloc(sizeof(struct mount));
+    if (!mnt) return -1;
+    
+    res = fs->setup_mount(fs, mnt);
+    if (res != 0) {
+        kfree(mnt);
+        return res;
+    }
+    
+    target_node->mount = mnt;
+    return 0;
 }

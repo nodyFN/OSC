@@ -30,17 +30,16 @@ struct vnode* tmpfs_create_vnode(enum tmpfs_node_type type, const char* name) {
     struct vnode *node = kmalloc(sizeof(struct vnode));
     node->v_ops = &tmpfs_v_ops;
     node->f_ops = &tmpfs_f_ops;
+    node->mount = NULL;
     
     struct tmpfs_node *internal = kmalloc(sizeof(struct tmpfs_node));
-    internal->type = type;
+    memset(internal, 0, sizeof(struct tmpfs_node));
     
+    internal->type = type;
     int len = strlen(name);
     if (len >= TMPFS_MAX_FILE_NAME) len = TMPFS_MAX_FILE_NAME - 1;
     memcpy(internal->name, name, len);
     internal->name[len] = '\0';
-    
-    internal->size = 0;
-    internal->nr_entries = 0;
     
     node->internal = internal;
     return node;
@@ -49,7 +48,6 @@ struct vnode* tmpfs_create_vnode(enum tmpfs_node_type type, const char* name) {
 int tmpfs_setup_mount(struct filesystem* fs, struct mount* mount) {
     mount->fs = fs;
     mount->root = tmpfs_create_vnode(TMPFS_TYPE_DIR, "/");
-    mount->root->mount = mount;
     return 0;
 }
 
@@ -79,7 +77,6 @@ int tmpfs_create(struct vnode* dir_node, struct vnode** target, const char* comp
     }
     
     struct vnode *new_node = tmpfs_create_vnode(TMPFS_TYPE_FILE, component_name);
-    new_node->mount = dir_node->mount;
     
     dir->entries[dir->nr_entries++] = new_node;
     *target = new_node;
@@ -98,7 +95,6 @@ int tmpfs_mkdir(struct vnode* dir_node, struct vnode** target, const char* compo
     }
     
     struct vnode *new_node = tmpfs_create_vnode(TMPFS_TYPE_DIR, component_name);
-    new_node->mount = dir_node->mount;
     
     dir->entries[dir->nr_entries++] = new_node;
     *target = new_node;
