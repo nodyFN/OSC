@@ -219,6 +219,15 @@ struct task_struct* user_process_create(const char* filename){
 
     task->curr_dir = rootfs->root;
 
+    struct file *f_stdin, *f_stdout, *f_stderr;
+    vfs_open("/dev/uart", 0, &f_stdin);
+    vfs_open("/dev/uart", 0, &f_stdout);
+    vfs_open("/dev/uart", 0, &f_stderr);
+    
+    task->fd_table[0] = f_stdin;
+    task->fd_table[1] = f_stdout;
+    task->fd_table[2] = f_stderr;
+
     enqueue(&run_queue, task);
     return task;
 }

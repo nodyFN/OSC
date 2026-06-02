@@ -4,6 +4,7 @@
 #include "string.h"
 #include "thread.h"
 #include "ramfs.h"
+#include "uartfs.h"
 
 struct mount* rootfs;
 struct filesystem* registered_fs[10];
@@ -30,6 +31,16 @@ void vfs_init() {
     register_filesystem(ramfs);
     vfs_mkdir("/ramfs");
     vfs_mount("/ramfs", "ramfs");
+
+    struct filesystem *uartfs = kmalloc(sizeof(struct filesystem));
+    uartfs->name = "uartfs";
+    uartfs->setup_mount = uartfs_setup_mount;
+    register_filesystem(uartfs);
+
+    vfs_mkdir("/dev");
+    vfs_mkdir("/dev/uart");
+    
+    vfs_mount("/dev/uart", "uartfs");
 }
 
 static int get_parent_and_basename(const char* pathname, struct vnode** parent, char* basename) {
