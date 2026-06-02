@@ -44,6 +44,8 @@ void ecall_helper_commit(){
     ecall_helper_list[18] = mkdir_ecall_helper;
     ecall_helper_list[19] = mount_ecall_helper;
     ecall_helper_list[20] = chdir_ecall_helper;
+    ecall_helper_list[21] = lseek64_ecall_helper;
+    ecall_helper_list[22] = ioctl_ecall_helper;
 }
 
 void getpid_ecall_helper(struct pt_regs* regs){
@@ -654,4 +656,34 @@ void chdir_ecall_helper(struct pt_regs* regs) {
     
     regs->sepc += 4;
     return;
+}
+
+void lseek64_ecall_helper(struct pt_regs* regs) {
+    // 21 lseek64
+    int fd = (int)regs->a0;
+    long offset = (long)regs->a1;
+    int whence = (int)regs->a2;
+    struct task_struct* curr = get_current();
+    
+    if (fd < 0 || fd >= MAX_FD || curr->fd_table[fd] == NULL) {
+        regs->a0 = -1;
+    } else {
+        regs->a0 = vfs_lseek64(curr->fd_table[fd], offset, whence);
+    }
+    regs->sepc += 4;
+}
+
+void ioctl_ecall_helper(struct pt_regs* regs) {
+    // 22 ioctl
+    int fd = (int)regs->a0;
+    unsigned long request = (unsigned long)regs->a1;
+    void* arg = (void*)regs->a2;
+    struct task_struct* curr = get_current();
+    
+    if (fd < 0 || fd >= MAX_FD || curr->fd_table[fd] == NULL) {
+        regs->a0 = -1;
+    } else {
+        regs->a0 = vfs_ioctl(curr->fd_table[fd], request, arg);
+    }
+    regs->sepc += 4;
 }

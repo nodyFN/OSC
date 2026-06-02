@@ -5,6 +5,7 @@
 #include "thread.h"
 #include "ramfs.h"
 #include "uartfs.h"
+#include "framebufferfs.h"
 
 struct mount* rootfs;
 struct filesystem* registered_fs[10];
@@ -41,6 +42,14 @@ void vfs_init() {
     vfs_mkdir("/dev/uart");
     
     vfs_mount("/dev/uart", "uartfs");
+
+    struct filesystem *fbfs = kmalloc(sizeof(struct filesystem));
+    fbfs->name = "framebufferfs";
+    fbfs->setup_mount = framebufferfs_setup_mount;
+    register_filesystem(fbfs);
+    
+    vfs_mkdir("/dev/fb");
+    vfs_mount("/dev/fb", "framebufferfs");
 }
 
 static int get_parent_and_basename(const char* pathname, struct vnode** parent, char* basename) {
@@ -223,4 +232,14 @@ int sys_chdir(const char *path) {
         get_current()->curr_dir = target;
     }
     return res;
+}
+
+long vfs_lseek64(struct file* file, long offset, int whence) {
+    if (!file || !file->f_ops->lseek64) return -1;
+    return file->f_ops->lseek64(file, offset, whence);
+}
+
+int vfs_ioctl(struct file* file, unsigned long request, void* arg) {
+    if (!file || !file->f_ops->ioctl) return -1;
+    return file->f_ops->ioctl(file, request, arg);
 }

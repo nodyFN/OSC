@@ -24,6 +24,8 @@ void write_ecall_helper(struct pt_regs* regs);
 void mkdir_ecall_helper(struct pt_regs* regs);
 void mount_ecall_helper(struct pt_regs* regs);
 void chdir_ecall_helper(struct pt_regs* regs);
+void lseek64_ecall_helper(struct pt_regs* regs);
+void ioctl_ecall_helper(struct pt_regs* regs);
 
 void unknown_ecall_helper(struct pt_regs* regs);
 
